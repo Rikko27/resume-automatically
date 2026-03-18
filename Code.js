@@ -261,46 +261,44 @@ function callGeminiAPI(memo) {
   // 互換性の高い v1beta エンドポイントを使用
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
-  const prompt = `あなたは一流のキャリアアドバイザー(CA)です。
-面談メモや文字起こしデータから、候補者の強みや実績を最大限に引き出した「プロフェッショナルな職務経歴書」を作成してください。
+  const prompt = `あなたは「通過率が上がる職務経歴書」を作成する超一流のキャリアアドバイザーです。
+以下の【厳守ルール】に従い、提供された情報から最高品質の職務経歴書を作成してください。
 
-【作成のポイント】
-1. 文字起こしの中にある具体的なエピソード、数値実績、課題解決のプロセスを逃さず拾い上げてください。
-2. 専門用語や略語は文脈から判断し、職務経歴書にふさわしい言葉へ整えてください。
-3. エピソードは「課題 → 仮説/取り組み → 結果」の構成で具体的に記述してください。
+【厳守ルール】
+1. 構成は以下の3項目のみとし、他は一切追加しないでください：
+   - キャリアサマリ
+   - 職務経歴
+   - 活かせる経験・知識・スキル
+
+2. 各項目の記述ルール：
+   - キャリアサマリ：3-5文で簡潔かつ強力に。
+   - 職務経歴：各社ごとに「企業名」「期間」「事業内容」「職務内容」「実績（数値化）」「ポイント」を記述。
+     ※「ポイント」は文章で「なぜ成果が出たか」をエピソード付きで具体的に。
+   - 活かせる経験・知識・スキル：箇条書きは絶対に禁止。文章でストーリーとして記述。足りない情報は推測・補完してOK。
+
+3. スタンス：
+   - 単なる情報の整理ではなく、採用担当者が「会いたい」と思う魅力的なアピールに仕上げること。
+   - 日付は自動的に本日（${Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy/MM/dd")}）として扱ってください。
 
 出力は必ず以下のJSONフォーマットに厳密に従い、JSONそのものだけを出力してください。Markdownのバッククォートなどは含めないでください。
 
-【構成案 JSONフォーマット】
+【JSONフォーマット】
 {
-  "career_summary": "キャリアサマリの内容（3-5文）",
+  "career_summary": "キャリアサマリの内容",
   "job_history": [
     {
       "company_name": "会社名",
-      "period": "20XX年X月～現在",
-      "employment_type": "正社員",
-      "position": "役職",
-      "business_content": "事業内容の説明",
-      "sales_amount": "売上高",
-      "employee_count": "従業員数",
-      "department": "担当部署",
-      "details": [
-        {
-          "duration": "20XX年X月～現在",
-          "content": "【営業スタイル】新規●%、既存●%\\n【担当地域】●●\\n【取引顧客】●●業界\\n【取引商品】●●\\n【担当業務】\\n・業務内容1\\n・業務内容2\\n\\n■実績\\n・20XX年度：目標達成率●%\\n\\n■ポイント\\n・エピソードタイトル\\n課題→仮説→取り組み→結果の流れで具体的エピソードを記載してください。"
-        }
-      ]
+      "period": "期間",
+      "business_content": "事業内容",
+      "job_details": "職務内容",
+      "achievements": "実績（数値を含む）",
+      "points": "ポイント（成果の理由とエピソード）"
     }
   ],
-  "skills": [
-    {
-      "title": "スキルタイトル",
-      "description": "具体的な説明"
-    }
-  ]
+  "skills_story": "活かせる経験・知識・スキルの内容（ストーリー形式）"
 }
 
-【面談メモ】
+【面談メモ/文字起こし】
 ${memo}
 
 ※情報が不足している部分は[要確認]としてください。
@@ -365,7 +363,7 @@ function debugListModels() {
 
 function createResumeDocument(name, date, data) {
   const folder = getOrCreateFolder(CONFIG.OUTPUT_FOLDER_NAME);
-  const docName = `職務経歴書_${name}_${date.replace(/[/:\s]/g, '')}`;
+  const docName = `職務経歴書_${name}_${Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyyMMdd")}`;
   const doc = DocumentApp.create(docName);
   const docId = doc.getId();
   const file = DriveApp.getFileById(docId);
@@ -388,56 +386,33 @@ function createResumeDocument(name, date, data) {
   titlePara.setHeading(DocumentApp.ParagraphHeading.HEADING1);
   titlePara.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
   
-  body.appendParagraph(Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy年MM月" + "×" + "日現在")).setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
-  body.appendParagraph("氏名： " + name).setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+  body.appendParagraph(Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy年MM月dd日現在")).setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+  body.appendParagraph("氏名： " + name + " 様").setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   
-  // キャリアサマリ
-  addSectionHeader(body, "キャリアサマリ");
-  body.appendParagraph(data.career_summary);
+  // 1. キャリアサマリ
+  addSectionHeader(body, "■ キャリアサマリ");
+  body.appendParagraph(data.career_summary || '');
   body.appendParagraph("");
 
-  // 職務経歴
-  addSectionHeader(body, "職務経歴");
-  
-  data.job_history.forEach((job, index) => {
-    body.appendParagraph(`■職務経歴${index + 1}`).setBold(true);
-    const jobLine = body.appendParagraph(`${job.period}  ${job.company_name}（${job.employment_type}）  役職：${job.position}`);
-    jobLine.setBold(true).setForegroundColor('#0000FF').setUnderline(true);
+  // 2. 職務経歴
+  addSectionHeader(body, "■ 職務経歴");
+  (data.job_history || []).forEach((job, index) => {
+    body.appendParagraph(job.company_name).setBold(true).setFontSize(12);
+    body.appendParagraph(`期間：${job.period}`);
+    body.appendParagraph(`事業内容：${job.business_content}`);
+    body.appendParagraph(`職務内容：\n${job.job_details}`);
+    body.appendParagraph(`実績：\n${job.achievements}`);
     
-    body.appendParagraph("■事業内容").setBold(true);
-    body.appendParagraph(job.business_content);
-    body.appendParagraph(`【売上高】 ${job.sales_amount}`);
-    body.appendParagraph(`【従業員数】 ${job.employee_count}`);
-    body.appendParagraph(`【担当部署】 ${job.department}`);
-    body.appendParagraph("");
+    const pointPara = body.appendParagraph(`ポイント：\n${job.points}`);
+    pointPara.setItalic(true).setForegroundColor('#333333');
     
-    // テーブル作成
-    const table = body.appendTable();
-    const headerRow = table.appendTableRow();
-    headerRow.appendTableCell("期間").setBackgroundColor('#F3F3F3').setWidth(100);
-    headerRow.appendTableCell("主な職務内容").setBackgroundColor('#F3F3F3');
-    
-    job.details.forEach(detail => {
-      const row = table.appendTableRow();
-      row.appendTableCell(detail.duration);
-      const contentCell = row.appendTableCell();
-      detail.content.split('\n').forEach(line => {
-        const p = contentCell.appendParagraph(line);
-        if (line.startsWith('■') || line.startsWith('【')) {
-            p.setBold(true);
-        }
-      });
-    });
-    body.appendParagraph("");
+    body.appendHorizontalRule();
   });
 
-  // 活かせる経験・知識・スキル
-  addSectionHeader(body, "活かせる経験・知識・スキル");
-  data.skills.forEach(skill => {
-    body.appendParagraph(`【${skill.title}】`).setBold(true);
-    body.appendParagraph(skill.description);
-    body.appendParagraph("");
-  });
+  // 3. 活かせる経験・知識・スキル
+  addSectionHeader(body, "■ 活かせる経験・知識・スキル");
+  // ストーリー形式（箇条書き禁止）
+  body.appendParagraph(data.skills_story || '');
 
   body.appendParagraph("以上").setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   
