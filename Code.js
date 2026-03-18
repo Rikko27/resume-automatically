@@ -220,9 +220,12 @@ function extractCandidateName(description) {
 }
 
 function callGeminiAPI(memo) {
-  const apiKey = CONFIG.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'YOUR_API_KEY_HERE' || apiKey === 'YOUR_GEMINI_API_KEY') {
-    throw new Error('GeminiのAPIキーがスクリプトプロパティに設定されていないか、正しくありません。\n\n【設定方法】\nスクリプトエディタ左側の「設定（歯車）」＞「スクリプトプロパティ」に、\nプロパティ名: GEMINI_API_KEY\n値: (あなたのAPIキー)\nとして登録してください。');
+  // 直接スクリプトプロパティから取得（Getterの不具合を回避）
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  
+  if (!apiKey || apiKey === 'YOUR_API_KEY_HERE' || apiKey === 'YOUR_GEMINI_API_KEY' || apiKey.trim() === '') {
+    throw new Error('GeminiのAPIキーが正しく設定されていません。現在の設定内容：' + (apiKey ? '設定済み(一部：' + apiKey.substring(0, 4) + '...)' : '未設定(null)') + 
+      '\n\nGoogle Apps Scriptエディタの左メニュー「設定（歯車マーク）」＞「スクリプトプロパティ」に、\nプロパティ名: GEMINI_API_KEY\n値: (あなたのAPIキー)\nとして登録されているか、スペルミスがないか再度ご確認ください。');
   }
 
   // 互換性の高い v1beta エンドポイントを使用
