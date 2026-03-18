@@ -48,6 +48,7 @@ function onOpen() {
     .addSeparator()
     .addItem('選択した行の職務経歴書を生成', 'generateResumeFromSelectedRow')
     .addSeparator()
+    .addItem('APIキーの初期設定/再設定', 'debugSetApiKey')
     .addItem('APIモデル一覧の確認（デバッグ用）', 'debugListModels')
     .addToUi();
 }
@@ -219,8 +220,8 @@ function extractCandidateName(description) {
 
 function callGeminiAPI(memo) {
   const apiKey = CONFIG.GEMINI_API_KEY;
-  if (apiKey === 'YOUR_API_KEY_HERE' || apiKey === 'YOUR_GEMINI_API_KEY') {
-    throw new Error('GeminiのAPIキーが設定されていません。13行目の設定を確認してください。');
+  if (!apiKey || apiKey === 'YOUR_API_KEY_HERE' || apiKey === 'YOUR_GEMINI_API_KEY') {
+    throw new Error('GeminiのAPIキーがスクリプトプロパティに設定されていないか、正しくありません。\n\n【設定方法】\nスクリプトエディタ左側の「設定（歯車）」＞「スクリプトプロパティ」に、\nプロパティ名: GEMINI_API_KEY\n値: (あなたのAPIキー)\nとして登録してください。');
   }
 
   // 互換性の高い v1beta エンドポイントを使用
@@ -420,4 +421,25 @@ function getOrCreateFolder(folderName) {
     return folders.next();
   }
   return DriveApp.createFolder(folderName);
+}
+
+/**
+ * 画面上のプロンプトからAPIキーを安全にスクリプトプロパティに保存する
+ */
+function debugSetApiKey() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.prompt('Gemini APIキーの登録', 
+    'ご自身のGemini APIキー（AIza...で始まる文字列）を貼り付けてOKを押してください。\n' +
+    '※この操作により、GitHubに公開したコードを変更せずに安全にキーを保存できます。', 
+    ui.ButtonSet.OK_CANCEL);
+  
+  if (response.getSelectedButton() == ui.Button.OK) {
+    const key = response.getResponseText().trim();
+    if (key) {
+      PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', key);
+      ui.alert('APIキーを正常に保存しました！これで職務経歴書の生成が可能になります。');
+    } else {
+      ui.alert('キーが入力されなかったため、保存を中止しました。');
+    }
+  }
 }
