@@ -163,7 +163,10 @@ function generateResumeFromSelectedRow() {
       const memo = row[6];
       
       try {
-        const resumeData = callGeminiAPI(memo);
+        // メモおよびリンク先ドキュメントから全内容を取得
+        const fullContent = getFullContentFromMemo(memo);
+        
+        const resumeData = callGeminiAPI(fullContent);
         const docUrl = createResumeDocument(candidateName, String(dateStr), resumeData);
         
         // シートを更新
@@ -219,6 +222,33 @@ function extractCandidateName(description) {
   return match ? match[1].trim() : null;
 }
 
+/**
+ * メモ欄から情報を抽出する。Googleドキュメントのリンクがあれば、その中身も取得する。
+ */
+function getFullContentFromMemo(memo) {
+  if (!memo) return '';
+  
+  let fullContent = '【面談メモ】\n' + memo + '\n\n';
+  
+  // GoogleドキュメントのURLを抽出 (docs.google.com/document/d/...)
+  const docUrlMatch = memo.match(/https:\/\/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/);
+  
+  if (docUrlMatch) {
+    const docId = docUrlMatch[1];
+    try {
+      const doc = DocumentApp.openById(docId);
+      const docText = doc.getBody().getText();
+      fullContent += '【提供されたドキュメント（文字起こし等）の内容】\n' + docText;
+      Logger.log('ドキュメントから内容を取得しました: ' + doc.getName());
+    } catch (e) {
+      Logger.log('ドキュメントの取得に失敗しました: ' + e.toString());
+      fullContent += '\n※注意: リンク先のドキュメントを読み取れませんでした。権限を確認してください。';
+    }
+  }
+  
+  return fullContent;
+}
+
 function callGeminiAPI(memo) {
   // 直接スクリプトプロパティから取得（Getterの不具合を回避）
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
@@ -231,7 +261,14 @@ function callGeminiAPI(memo) {
   // 互換性の高い v1beta エンドポイントを使用
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
-  const prompt = `あなたはプロのキャリアアドバイザー(CA)です。以下の構成案に従い、提供された面談メモからプロフェッショナルな職務経歴書を作成してください。
+  const prompt = `あなたは一流のキャリアアドバイザー(CA)です。
+面談メモや文字起こしデータから、候補者の強みや実績を最大限に引き出した「プロフェッショナルな職務経歴書」を作成してください。
+
+【作成のポイント】
+1. 文字起こしの中にある具体的なエピソード、数値実績、課題解決のプロセスを逃さず拾い上げてください。
+2. 専門用語や略語は文脈から判断し、職務経歴書にふさわしい言葉へ整えてください。
+3. エピソードは「課題 → 仮説/取り組み → 結果」の構成で具体的に記述してください。
+
 出力は必ず以下のJSONフォーマットに厳密に従い、JSONそのものだけを出力してください。Markdownのバッククォートなどは含めないでください。
 
 【構成案 JSONフォーマット】
