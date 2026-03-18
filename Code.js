@@ -167,7 +167,15 @@ function generateResumeFromSelectedRow() {
         const fullContent = getFullContentFromMemo(memo);
         
         const resumeData = callGeminiAPI(fullContent);
-        const docUrl = createResumeDocument(candidateName, String(dateStr), resumeData);
+        
+        // AIが特定した名前があれば、それを使う（「不明」だった場合の補完）
+        let finalName = candidateName;
+        if ((!candidateName || candidateName === '不明') && resumeData.candidate_name) {
+          finalName = resumeData.candidate_name;
+          sheet.getRange(i + 1, 4).setValue(finalName); // シートの名前列を更新
+        }
+        
+        const docUrl = createResumeDocument(finalName, String(dateStr), resumeData);
         
         // シートを更新
         sheet.getRange(i + 1, 5).setValue('完了');
@@ -218,7 +226,9 @@ function getOrCreateSheet() {
 }
 
 function extractCandidateName(description) {
-  const match = description.match(/氏名：\s*(.+)/);
+  // 複数のパターンに対応 (氏名, 名前, 候補者名 など)
+  const regex = /(?:氏名|名前|候補者名)\s*[:：]\s*([^\n\r]+)/i;
+  const match = description.match(regex);
   return match ? match[1].trim() : null;
 }
 
@@ -284,6 +294,7 @@ function callGeminiAPI(memo) {
 
 【JSONフォーマット】
 {
+  "candidate_name": "候補者のフルネーム（見つからない場合はnull）",
   "career_summary": "キャリアサマリの内容",
   "job_history": [
     {
