@@ -9,9 +9,10 @@
 // 設定項目 (Settings)
 // ==========================================
 const CONFIG = {
-  // ★ APIキーはスクリプトプロパティ「GEMINI_API_KEY」から取得します
-  // GitHubに公開しても安全な形式になりました
-  GEMINI_API_KEY: PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY'),
+  // ★ APIキーはスクリプトプロパティ「GEMINI_API_KEY」から動的に取得します
+  get GEMINI_API_KEY() {
+    return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  },
   
   // ★ 使用するGeminiのモデル名
   // ご自身のリストに存在し、かつエラーが出にくい「gemini-flash-latest」を指定します
