@@ -113,6 +113,13 @@ function fetchRecentInterviews() {
     }
   });
   
+  // チェックボックスを全行に再適用（appendRowでの値上書き対策）
+  const maxRows = sheet.getMaxRows();
+  if (maxRows >= 2) {
+    const rule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+    sheet.getRange(2, 1, maxRows - 1, 1).setDataValidation(rule);
+  }
+  
   SpreadsheetApp.getUi().alert('面談イベントを取得しました。');
 }
 
@@ -195,10 +202,12 @@ function getOrCreateSheet() {
     sheet.hideColumns(7);
   }
   
-  // 常にA2以降のデータがある範囲（または、十分な範囲）をチェックボックス形式にする
-  const lastRow = Math.max(sheet.getLastRow(), 100); 
-  const rule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
-  sheet.getRange(2, 1, lastRow - 1, 1).setDataValidation(rule);
+  // 常にA2以降のデータがある範囲（シートの最大行まで）をチェックボックス形式にする
+  const lastRow = sheet.getMaxRows();
+  if (lastRow >= 2) {
+    const rule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+    sheet.getRange(2, 1, lastRow - 1, 1).setDataValidation(rule);
+  }
   
   return sheet;
 }
