@@ -489,8 +489,10 @@ function addSectionHeader(body, text) {
  * 太字マーカー（**）を処理してパラグラフに追加するヘルパー
  */
 function appendFormattedText(paragraph, text) {
+  if (!text) return;
   const parts = text.split(/(\*\*.*?\*\*)/);
   parts.forEach(part => {
+    if (!part) return; // 空の文字列はスキップ（Googleドキュメントのエラー回避）
     if (part.startsWith('**') && part.endsWith('**')) {
       paragraph.appendText(part.slice(2, -2)).setBold(true);
     } else {
