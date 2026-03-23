@@ -99,7 +99,7 @@ function fetchRecentInterviews() {
     const title = event.getTitle();
     if (!existingTitles.includes(title)) {
       const date = Utilities.formatDate(event.getStartTime(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-      const description = cleanHtml(event.getDescription());
+      const description = event.getDescription();
       const candidateName = extractCandidateName(description) || '不明';
       
       sheet.appendRow([
@@ -113,8 +113,6 @@ function fetchRecentInterviews() {
       ]);
     }
   });
-  
-  sheet.hideColumns(7); // 全てのデータ読み込み後に再度非表示を確認
   
   // チェックボックスを全行に再適用（appendRowでの値上書き対策）
   const maxRows = sheet.getMaxRows();
@@ -145,54 +143,11 @@ function generateResumeFromSelectedRow() {
   let processedCount = 0;
   let selectedCount = 0;
   
-  let headers = [];
-  let headerRowIndex = -1;
-  
-  // 最初の10行からヘッダー（「選択」または「日程」が含まれる行）を探す
-  for (let i = 0; i < Math.min(data.length, 10); i++) {
+  for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    if (row.some(cell => String(cell).includes('選択') || String(cell).includes('日程'))) {
-      headers = row;
-      headerRowIndex = i;
-      break;
-    }
-  }
-  
-  if (headerRowIndex === -1) {
-    Logger.log('データ内容: ' + JSON.stringify(data.slice(0, 3)));
-    SpreadsheetApp.getUi().alert('シートのヘッダーが見つかりません。「選択」「日程」「ステータス」などの項目が含まれる行があるか確認してください。\n現在の1行目の内容: ' + data[0].join(', '));
-    return;
-  }
-  
-  // ヘッダー検索を柔軟にするためのヘルパー
-  const findCol = (name) => {
-    const idx = headers.findIndex(h => {
-      const header = String(h).trim();
-      if (name === 'URL') return header.toUpperCase() === 'URL';
-      if (name === 'メモ') return header.includes('メモ');
-      return header === name;
-    });
-    return idx;
-  };
-
-  const selectColIdx = findCol('選択');
-  const dateColIdx = findCol('日程');
-  const titleColIdx = findCol('イベント名');
-  const nameColIdx = findCol('候補者名');
-  const statusColIdx = findCol('ステータス');
-  const urlColIdx = findCol('URL');
-  const memoColIdx = findCol('メモ');
-  
-  if (statusColIdx === -1 || urlColIdx === -1 || memoColIdx === -1) {
-    Logger.log('特定されたヘッダー行: ' + JSON.stringify(headers));
-    SpreadsheetApp.getUi().alert('必要な項目（ステータス、URL、またはメモ）が見つかりません。ヘッダー行を確認してください。\n見つかった項目: ' + headers.join(', '));
-    return;
-  }
-  
-  for (let i = headerRowIndex + 1; i < data.length; i++) {
-    const row = data[i];
-    const isSelected = (row[selectColIdx] === true || String(row[selectColIdx]).toUpperCase() === 'TRUE');
-    const status = row[statusColIdx];
+    // チェックボックスの値（Booleanとして判定、または文字列の"TRUE"を考慮）
+    const isSelected = (row[0] === true || String(row[0]).toUpperCase() === 'TRUE');
+    const status = row[4];
     
     if (isSelected) {
       selectedCount++;
@@ -201,10 +156,10 @@ function generateResumeFromSelectedRow() {
         continue;
       }
       
-      const dateStr = row[dateColIdx];
-      const title = row[titleColIdx];
-      const candidateName = row[nameColIdx];
-      const memo = row[memoColIdx];
+      const dateStr = row[1];
+      const title = row[2];
+      const candidateName = row[3];
+      const memo = row[6];
       
       try {
         // メモおよびリンク先ドキュメントから全内容を取得
@@ -217,17 +172,16 @@ function generateResumeFromSelectedRow() {
         let finalName = candidateName;
         if ((!candidateName || candidateName === '不明') && resumeData.candidate_name) {
           finalName = resumeData.candidate_name;
-          sheet.getRange(i + 1, nameColIdx + 1).setValue(finalName); // シートの名前列を更新
+          sheet.getRange(i + 1, 4).setValue(finalName); // シートの名前列を更新
         }
         
         const docUrl = createResumeDocument(finalName, String(dateStr), resumeData);
         
         // シートを更新
-        sheet.getRange(i + 1, statusColIdx + 1).setValue('完了');
-        sheet.getRange(i + 1, urlColIdx + 1).setFormula(`=HYPERLINK("${docUrl}", "📄 職務経歴書を開く")`);
-        sheet.getRange(i + 1, selectColIdx + 1).setValue(false); // チェックボックスを外す
+        sheet.getRange(i + 1, 5).setValue('完了');
+        sheet.getRange(i + 1, 6).setValue(docUrl);
+        sheet.getRange(i + 1, 1).setValue(false); // チェックボックスを外す
         
-        SpreadsheetApp.flush(); // UIを即座に更新
         processedCount++;
       } catch (e) {
         Logger.log('エラーが発生しました: ' + e.toString());
@@ -256,7 +210,6 @@ function getOrCreateSheet() {
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.SHEET_NAME);
     sheet.appendRow(['選択', '日程', 'イベント名', '候補者名', 'ステータス', 'URL', 'メモ(非表示)']);
-    sheet.hideColumns(7); // メモ列を非表示にする
     sheet.setFrozenRows(1);
     // メモ列を非表示に
     sheet.hideColumns(7);
@@ -277,31 +230,6 @@ function extractCandidateName(description) {
   const regex = /(?:氏名|名前|候補者名)\s*[:：]\s*([^\n\r]+)/i;
   const match = description.match(regex);
   return match ? match[1].trim() : null;
-}
-
-/**
- * HTMLタグを除去し、改行を適切に処理してプレーンテキストにする
- */
-function cleanHtml(html) {
-  if (!html) return "";
-  // ブロック要素や改行タグを改行文字に置換
-  let text = html
-    .replace(/<(br|p|div|li|h1|h2|h3|h4|h5|h6)[^>]*>/gi, "\n")
-    .replace(/<\/p>|<\/div>|<\/li>/gi, "\n");
-  
-  // 残りのHTMLタグを除去
-  text = text.replace(/<[^>]*>/g, "");
-  
-  // 実体参照をデコード（最低限のもの）
-  text = text
-    .replace(/&nbsp;/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"');
-    
-  // 連続する空行を整理
-  return text.split(/\n+/).map(s => s.trim()).filter(s => s).join("\n");
 }
 
 /**
@@ -379,10 +307,10 @@ function callGeminiAPI(memo) {
       "period": "期間（例：2020年4月～2023年3月）",
       "employment_type": "雇用形態（例：正社員）",
       "position": "役職",
-      "overview": "【業務内容】にあたる概要（ミッションや役割、責任の範囲を2-3行で要約。重要な語句を**で囲む）",
-      "tasks": ["【担当業務】としての具体的なアクション、数値、行動（例：1日平均60件の架電、週5件の新規商談など、重要な箇所を**で囲む）"],
-      "achievements": ["定量的な成果や表彰歴（成果や達成率%を**で囲む）"],
-      "points": "工夫した点や戦略（キーワードを**で囲み、読み応えのあるストーリー形式で記述してください）"
+      "overview": "【業務内容】にあたる概要（ミッションや役割を2-3行で）",
+      "tasks": ["具体的なタスク（箇条書き用）"],
+      "achievements": ["定量的な成果や表彰歴（箇条書き用）"],
+      "points": "工夫した点や戦略（2-3行の文章）"
     }
   ],
   "skills_story": "活かせる経験・知識・スキルの内容（ストーリー形式）"
@@ -487,17 +415,17 @@ function createResumeDocument(name, date, data) {
   // 2. 職務経歴
   addSectionHeader(body, '■ 職務経歴');
   (data.job_history || []).forEach((job, index) => {
-    // 職務経歴ヘッダー情報（1行まるごと太字）
+    // 職務経歴ヘッダー情報（太字なし）
     const headerText = `${job.period}  ${job.company_name}（${job.employment_type || '正社員'}）  役職：${job.position || '－'}`;
-    body.appendParagraph(headerText).setBold(true).setFontSize(11);
+    body.appendParagraph(headerText).setBold(false).setFontSize(11);
     
     // 2列のテーブルを作成
     const table = body.appendTable();
     
-    // 表のヘッダー（太字）
+    // 表のヘッダー（太字なし）
     const headRow = table.appendTableRow();
-    headRow.appendTableCell('期間').setBold(true).setBackgroundColor('#F3F3F3').setWidth(100);
-    headRow.appendTableCell('主な職務内容').setBold(true).setBackgroundColor('#F3F3F3');
+    headRow.appendTableCell('期間').setBold(false).setBackgroundColor('#F3F3F3').setWidth(100);
+    headRow.appendTableCell('主な職務内容').setBold(false).setBackgroundColor('#F3F3F3');
     
     const contentRow = table.appendTableRow();
     
@@ -510,13 +438,12 @@ function createResumeDocument(name, date, data) {
     const rightCell = contentRow.appendTableCell();
     
     // 1. 【業務内容】
-    rightCell.appendParagraph('【業務内容】').setBold(true);
-    const overviewPara = rightCell.appendParagraph('');
-    appendFormattedText(overviewPara, job.overview || '');
+    rightCell.appendParagraph('【業務内容】').setBold(false);
+    rightCell.appendParagraph(job.overview || '').setBold(false);
     rightCell.appendParagraph(''); // 空行
     
     // 2. 【担当業務】
-    rightCell.appendParagraph('【担当業務】').setBold(true);
+    rightCell.appendParagraph('【担当業務】').setBold(false);
     (job.tasks || []).forEach(task => {
       const li = rightCell.appendListItem('');
       li.setGlyphType(DocumentApp.GlyphType.BULLET);
@@ -525,7 +452,7 @@ function createResumeDocument(name, date, data) {
     rightCell.appendParagraph(''); // 空行
     
     // 3. ■実績
-    rightCell.appendParagraph('■実績').setBold(true);
+    rightCell.appendParagraph('■実績').setBold(false);
     (job.achievements || []).forEach(ach => {
       const li = rightCell.appendListItem('');
       li.setGlyphType(DocumentApp.GlyphType.BULLET);
@@ -534,7 +461,7 @@ function createResumeDocument(name, date, data) {
     rightCell.appendParagraph(''); // 空行
     
     // 4. ■ポイント
-    rightCell.appendParagraph('■ポイント').setBold(true);
+    rightCell.appendParagraph('■ポイント').setBold(false);
     const pointPara = rightCell.appendParagraph('');
     appendFormattedText(pointPara, job.points || '');
     
@@ -555,7 +482,7 @@ function createResumeDocument(name, date, data) {
 function addSectionHeader(body, text) {
   const p = body.appendParagraph(text);
   p.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-  p.setBold(true); // セクション見出しを太字に
+  p.setBold(true); // 大見出しのみ太字にする
   p.setAttributes({
     [DocumentApp.Attribute.SPACING_BEFORE]: 12,
     [DocumentApp.Attribute.SPACING_AFTER]: 6
