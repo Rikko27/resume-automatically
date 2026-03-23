@@ -176,12 +176,13 @@ function generateResumeFromSelectedRow() {
         }
         
         const docUrl = createResumeDocument(finalName, String(dateStr), resumeData);
+        Logger.log('生成されたドキュメントURL: ' + docUrl);
         
-        // シートを更新
-        sheet.getRange(i + 1, 5).setValue('完了');
-        sheet.getRange(i + 1, 6).setValue(docUrl);
+        // シートを更新（連動性を高めるためまとめて更新）
+        sheet.getRange(i + 1, 5, 1, 2).setValues([['完了', docUrl]]);
         sheet.getRange(i + 1, 1).setValue(false); // チェックボックスを外す
         
+        SpreadsheetApp.flush(); // 即座に画面へ反映
         processedCount++;
       } catch (e) {
         Logger.log('エラーが発生しました: ' + e.toString());
