@@ -346,8 +346,13 @@ function callGeminiAPI(memo) {
       "points": "工夫した点や戦略（2-3行の文章）"
     }
   ],
-  "skills_story": "活かせる経験・知識・スキルの内容（ストーリー形式）"
+  "skills_list": ["活かせる経験・知識・スキル1", "活かせる経験・知識・スキル2"]
 }
+
+【最重要ルール】
+- どの項目（キャリアサマリ、職務内容、スキル等）においても、太字（**）や装飾マーカーは一切使用しないでください。
+- 数値やキーワードも装飾せず、プレーンなテキストで出力してください。
+- 活かせる経験・知識・スキルは、ストーリー形式ではなく、簡潔な箇条書きのリスト（skills_list）として出力してください。
 
 【面談メモ/文字起こし】
 ${memo}
@@ -497,14 +502,19 @@ function createResumeDocument(name, date, data) {
     rightCell.appendParagraph('■ポイント').setBold(false);
     const pointPara = rightCell.appendParagraph('');
     appendFormattedText(pointPara, job.points || '');
+    pointPara.setBold(false); // 項目名も含め太字にしない
     
     body.appendParagraph(""); // スペース
   });
 
   // 3. 活かせる経験・知識・スキル
-  addSectionHeader(body, "■ 活かせる経験・知識・スキル");
-  // ストーリー形式（箇条書き禁止）
-  body.appendParagraph(data.skills_story || '');
+  addSectionHeader(body, '■ 活かせる経験・知識・スキル');
+  (data.skills_list || []).forEach(skill => {
+    const li = body.appendListItem('');
+    li.setGlyphType(DocumentApp.GlyphType.BULLET);
+    appendFormattedText(li, skill);
+    li.setBold(false); // 項目名も含め太字にしない
+  });
 
   body.appendParagraph("以上").setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   
