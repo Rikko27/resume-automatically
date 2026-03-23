@@ -32,7 +32,7 @@ const CONFIG = {
   OUTPUT_FOLDER_NAME: '生成済み職務経歴書',
   
   // スプレッドシートのシート名
-  SHEET_NAME: '面談一覧'
+  SHEET_NAME: '面談履歴'
 };
 
 // ==========================================
@@ -44,14 +44,14 @@ const CONFIG = {
  */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
-  ui.createMenu('職務経歴書ツール')
-    .addItem('カレンダーから面談を取得', 'fetchRecentInterviews')
-    .addSeparator()
-    .addItem('選択した行の職務経歴書を生成', 'generateResumeFromSelectedRow')
-    .addSeparator()
-    .addItem('APIキーの初期設定/再設定', 'debugSetApiKey')
-    .addItem('APIモデル一覧の確認（デバッグ用）', 'debugListModels')
-    .addToUi();
+  ui.createMenu('📑 職務経歴書ツール')
+      .addItem('1. カレンダーから面談を取得', 'fetchRecentInterviews')
+      .addItem('2. 選択した行の職務経歴書を生成', 'generateResumeFromSelectedRow')
+      .addSeparator()
+      .addItem('🔑 APIキーの初期設定/再設定', 'setupApiKey')
+      .addItem('🔍 診断：カレンダー取得の確認', 'diagnoseCalendar')
+      .addItem('APIモデル一覧の確認（デバッグ用）', 'debugListModels')
+      .addToUi();
 }
 
 /**
@@ -69,13 +69,13 @@ function fetchRecentInterviews() {
     startTime = new Date(now.getTime() - (CONFIG.DAYS_BACK * 24 * 60 * 60 * 1000));
   }
   
-  // 「野山」という名前のカレンダーを探す
+  // カレンダーの取得
   let targetCalendar = CalendarApp.getCalendarsByName(CONFIG.SEARCH_KEYWORD)[0];
   if (!targetCalendar) {
     targetCalendar = CalendarApp.getDefaultCalendar();
-    Logger.log('「' + CONFIG.SEARCH_KEYWORD + '」という名前のカレンダーが見つからなかったため、デフォルトのカレンダーを使用します。');
+    Logger.log('「' + CONFIG.SEARCH_KEYWORD + '」という名前のカレンダーは見つからなかったため、メインのカレンダーを使用します。');
   } else {
-    Logger.log('「' + CONFIG.SEARCH_KEYWORD + '」カレンダーから読み込みます。');
+    Logger.log('「' + CONFIG.SEARCH_KEYWORD + '」という名前のカレンダーから読み込みます。');
   }
 
   const events = targetCalendar.getEvents(startTime, now);
@@ -545,4 +545,21 @@ function debugSetApiKey() {
       ui.alert('キーが入力されなかったため、保存を中止しました。');
     }
   }
+}
+
+/**
+ * デバッグ用：現在使用可能なカレンダーを一覧表示する
+ */
+function diagnoseCalendar() {
+  const calendars = CalendarApp.getAllCalendars();
+  let msg = "【カレンダー取得診断結果】\n\n";
+  msg += "あなたの環境で利用可能なカレンダー:\n";
+  calendars.forEach(cal => {
+    msg += `- ${cal.getName()} (ID: ${cal.getId()})${cal.isPrimary() ? ' [メイン]' : ''}\n`;
+  });
+  
+  msg += `\n現在、タイトルまたは説明に「${CONFIG.SEARCH_KEYWORD}」が含まれる予定を検索しています。`;
+  msg += "\n※もし特定の名前のカレンダー（例：共有カレンダーなど）から取得したい場合は、そのカレンダー名を『初回面談』にするか、プログラムの設定を変更する必要があります。";
+  
+  SpreadsheetApp.getUi().alert(msg);
 }
