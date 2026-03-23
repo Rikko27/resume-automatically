@@ -146,16 +146,29 @@ function generateResumeFromSelectedRow() {
   let selectedCount = 0;
   
   const headers = data[0];
-  const selectColIdx = headers.indexOf('選択');
-  const dateColIdx = headers.indexOf('日程');
-  const titleColIdx = headers.indexOf('イベント名');
-  const nameColIdx = headers.indexOf('候補者名');
-  const statusColIdx = headers.indexOf('ステータス');
-  const urlColIdx = headers.indexOf('URL');
-  const memoColIdx = headers.indexOf('メモ(非表示)');
+  
+  // ヘッダー検索を柔軟にするためのヘルパー
+  const findCol = (name) => {
+    const idx = headers.findIndex(h => {
+      const header = String(h).trim();
+      if (name === 'URL') return header.toUpperCase() === 'URL';
+      if (name === 'メモ') return header.includes('メモ');
+      return header === name;
+    });
+    return idx;
+  };
+
+  const selectColIdx = findCol('選択');
+  const dateColIdx = findCol('日程');
+  const titleColIdx = findCol('イベント名');
+  const nameColIdx = findCol('候補者名');
+  const statusColIdx = findCol('ステータス');
+  const urlColIdx = findCol('URL');
+  const memoColIdx = findCol('メモ');
   
   if (statusColIdx === -1 || urlColIdx === -1 || memoColIdx === -1) {
-    SpreadsheetApp.getUi().alert('シートのヘッダー（ステータス、URL、またはメモ）が見つかりません。シートが正しく初期化されているか確認してください。');
+    Logger.log('見つかったヘッダー: ' + JSON.stringify(headers));
+    SpreadsheetApp.getUi().alert('シートのヘッダーが見つかりません。「ステータス」「URL」「メモ」という名前の列があるか確認してください。\n現在のヘッダー: ' + headers.join(', '));
     return;
   }
   
