@@ -305,10 +305,12 @@ function callGeminiAPI(memo) {
     {
       "company_name": "会社名",
       "period": "期間（例：2020年4月～2023年3月）",
-      "overview": "従事したプロジェクトや役割の概要（例：〇〇プロジェクトに従事）",
-      "tasks": ["具体的なタスク1", "具体的なタスク2"],
-      "achievements": ["成果・推移1（数値含む）", "成果・推移2（数値含む）"],
-      "points": "最も強調したい戦略や工夫点（重要な箇所を**で囲む）"
+      "employment_type": "雇用形態（例：正社員）",
+      "position": "役職",
+      "overview": "従事したプロジェクトや役割の概要",
+      "tasks": ["具体的なタスク（重要な箇所を**で囲む）"],
+      "achievements": ["具体的な数値実績（成果や達成率%を**で囲む）"],
+      "points": "最も強調したい戦略や工夫点（キーワードを**で囲む）"
     }
   ],
   "skills_story": "活かせる経験・知識・スキルの内容（ストーリー形式）"
@@ -412,20 +414,28 @@ function createResumeDocument(name, date, data) {
 
   // 2. 職務経歴
   addSectionHeader(body, '■ 職務経歴');
-  (data.job_history || []).forEach((job) => {
-    body.appendParagraph(job.company_name).setBold(true).setFontSize(12);
+  (data.job_history || []).forEach((job, index) => {
+    // 職務経歴ヘッダー情報（1行まるごと太字）
+    const headerText = `${job.period}  ${job.company_name}（${job.employment_type || '正社員'}）  役職：${job.position || '－'}`;
+    body.appendParagraph(headerText).setBold(true).setFontSize(11);
     
     // 2列のテーブルを作成
     const table = body.appendTable();
-    const row = table.appendTableRow();
+    
+    // 表のヘッダー（太字）
+    const headRow = table.appendTableRow();
+    headRow.appendTableCell('期間').setBold(true).setBackgroundColor('#F3F3F3').setWidth(100);
+    headRow.appendTableCell('主な職務内容').setBold(true).setBackgroundColor('#F3F3F3');
+    
+    const contentRow = table.appendTableRow();
     
     // 左列：期間
-    const leftCell = row.appendTableCell(job.period || '');
+    const leftCell = contentRow.appendTableCell(job.period || '');
     leftCell.setWidth(100);
     leftCell.setVerticalAlignment(DocumentApp.VerticalAlignment.TOP);
     
     // 右列：主な職務内容
-    const rightCell = row.appendTableCell();
+    const rightCell = contentRow.appendTableCell();
     
     // 概要
     rightCell.appendParagraph(job.overview || '').setBold(true);
@@ -433,13 +443,17 @@ function createResumeDocument(name, date, data) {
     // 担当業務
     rightCell.appendParagraph('【担当業務】').setBold(true);
     (job.tasks || []).forEach(task => {
-      rightCell.appendListItem(task).setGlyphType(DocumentApp.GlyphType.BULLET);
+      const li = rightCell.appendListItem('');
+      li.setGlyphType(DocumentApp.GlyphType.BULLET);
+      appendFormattedText(li, task);
     });
     
     // 実績
     rightCell.appendParagraph('■実績').setBold(true);
     (job.achievements || []).forEach(ach => {
-      rightCell.appendListItem(ach).setGlyphType(DocumentApp.GlyphType.BULLET);
+      const li = rightCell.appendListItem('');
+      li.setGlyphType(DocumentApp.GlyphType.BULLET);
+      appendFormattedText(li, ach);
     });
     
     // ポイント
