@@ -79,11 +79,13 @@ function fetchRecentInterviews() {
   }
 
   const events = targetCalendar.getEvents(startTime, now);
+  Logger.log('期間内に ' + events.length + ' 件のイベントが見つかりました。');
   
-  // フィルタリング：タイトルまたは説明にキーワードが含まれる、または「氏名：」がある
+  // フィルタリング：タイトルまたは説明にキーワードが含まれる
   const interviewEvents = events.filter(e => {
     const title = e.getTitle();
-    return title.includes(CONFIG.SEARCH_KEYWORD);
+    const desc = e.getDescription();
+    return title.includes(CONFIG.SEARCH_KEYWORD) || desc.includes(CONFIG.SEARCH_KEYWORD);
   });
   
   if (interviewEvents.length === 0) {
