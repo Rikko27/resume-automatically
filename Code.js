@@ -94,9 +94,23 @@ function fetchRecentInterviews() {
   }
   
   // 既存のデータを取得（重複チェック用）
-  const existingTitlesRange = sheet.getRange(2, 3, Math.max(sheet.getLastRow() - 1, 1), 1);
-  const existingTitles = existingTitlesRange.getValues().flat();
+  const lastRow = sheet.getLastRow();
+  const existingTitles = lastRow > 1 
+    ? sheet.getRange(2, 3, lastRow - 1, 1).getValues().flat() 
+    : [];
   
+  // 実際にデータが入っている最後の行を探す（チェックボックス列を除外して判定）
+  let actualLastRow = 1;
+  if (lastRow > 1) {
+    const dataRange = sheet.getRange(1, 2, lastRow, 1).getValues();
+    for (let i = dataRange.length - 1; i >= 0; i--) {
+      if (dataRange[i][0] !== "") {
+        actualLastRow = i + 1;
+        break;
+      }
+    }
+  }
+
   interviewEvents.forEach(event => {
     const title = event.getTitle();
     if (!existingTitles.includes(title)) {
@@ -104,23 +118,29 @@ function fetchRecentInterviews() {
       const description = event.getDescription();
       const candidateName = extractCandidateName(description) || '不明';
       
-      sheet.appendRow([
-        false, // 選択用チェックボックス
+      actualLastRow++;
+      sheet.getRange(actualLastRow, 1, 1, 7).setValues([[
+        false, // 選択用
         date,
         title,
         candidateName,
         '未作成',
         '', // リンク
-        description // 隠し列または詳細用
-      ]);
+        description
+      ]]);
     }
   });
   
-  // チェックボックスを全行に再適用（appendRowでの値上書き対策）
-  const maxRows = sheet.getMaxRows();
-  if (maxRows >= 2) {
+  // チェックボックスをデータがある行だけに適用
+  if (actualLastRow >= 2) {
     const rule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
-    sheet.getRange(2, 1, maxRows - 1, 1).setDataValidation(rule);
+    sheet.getRange(2, 1, actualLastRow - 1, 1).setDataValidation(rule);
+    
+    // データがない下の行のチェックボックス（もしあれば）を削除
+    const totalMaxRows = sheet.getMaxRows();
+    if (totalMaxRows > actualLastRow) {
+      sheet.getRange(actualLastRow + 1, 1, totalMaxRows - actualLastRow, 1).clearDataValidations().clearContent();
+    }
   }
   
   SpreadsheetApp.getUi().alert('面談イベントを取得しました。');
