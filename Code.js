@@ -162,8 +162,11 @@ function generateResumeFromSelectedRow() {
       const memo = row[6];
       
       try {
-        // カレンダーのメモ欄の内容だけを使用（ドキュメント取得は不要という依頼に基づき、直接memoを渡す）
-        const resumeData = callGeminiAPI(memo);
+        // メモおよびリンク先ドキュメントから全内容を取得
+        const fullContent = getFullContentFromMemo(memo);
+        Logger.log('抽出されたコンテキストの内容: ' + fullContent.substring(0, 500) + '...');
+        
+        const resumeData = callGeminiAPI(fullContent);
         
         // AIが特定した名前があれば、それを使う（「不明」だった場合の補完）
         let finalName = candidateName;
