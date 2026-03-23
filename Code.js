@@ -145,7 +145,24 @@ function generateResumeFromSelectedRow() {
   let processedCount = 0;
   let selectedCount = 0;
   
-  const headers = data[0];
+  let headers = [];
+  let headerRowIndex = -1;
+  
+  // 最初の10行からヘッダー（「選択」または「日程」が含まれる行）を探す
+  for (let i = 0; i < Math.min(data.length, 10); i++) {
+    const row = data[i];
+    if (row.some(cell => String(cell).includes('選択') || String(cell).includes('日程'))) {
+      headers = row;
+      headerRowIndex = i;
+      break;
+    }
+  }
+  
+  if (headerRowIndex === -1) {
+    Logger.log('データ内容: ' + JSON.stringify(data.slice(0, 3)));
+    SpreadsheetApp.getUi().alert('シートのヘッダーが見つかりません。「選択」「日程」「ステータス」などの項目が含まれる行があるか確認してください。\n現在の1行目の内容: ' + data[0].join(', '));
+    return;
+  }
   
   // ヘッダー検索を柔軟にするためのヘルパー
   const findCol = (name) => {
@@ -167,12 +184,12 @@ function generateResumeFromSelectedRow() {
   const memoColIdx = findCol('メモ');
   
   if (statusColIdx === -1 || urlColIdx === -1 || memoColIdx === -1) {
-    Logger.log('見つかったヘッダー: ' + JSON.stringify(headers));
-    SpreadsheetApp.getUi().alert('シートのヘッダーが見つかりません。「ステータス」「URL」「メモ」という名前の列があるか確認してください。\n現在のヘッダー: ' + headers.join(', '));
+    Logger.log('特定されたヘッダー行: ' + JSON.stringify(headers));
+    SpreadsheetApp.getUi().alert('必要な項目（ステータス、URL、またはメモ）が見つかりません。ヘッダー行を確認してください。\n見つかった項目: ' + headers.join(', '));
     return;
   }
   
-  for (let i = 1; i < data.length; i++) {
+  for (let i = headerRowIndex + 1; i < data.length; i++) {
     const row = data[i];
     const isSelected = (row[selectColIdx] === true || String(row[selectColIdx]).toUpperCase() === 'TRUE');
     const status = row[statusColIdx];
