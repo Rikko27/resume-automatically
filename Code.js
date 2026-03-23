@@ -99,7 +99,7 @@ function fetchRecentInterviews() {
     const title = event.getTitle();
     if (!existingTitles.includes(title)) {
       const date = Utilities.formatDate(event.getStartTime(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-      const description = event.getDescription();
+      const description = cleanHtml(event.getDescription());
       const candidateName = extractCandidateName(description) || '不明';
       
       sheet.appendRow([
@@ -230,6 +230,31 @@ function extractCandidateName(description) {
   const regex = /(?:氏名|名前|候補者名)\s*[:：]\s*([^\n\r]+)/i;
   const match = description.match(regex);
   return match ? match[1].trim() : null;
+}
+
+/**
+ * HTMLタグを除去し、改行を適切に処理してプレーンテキストにする
+ */
+function cleanHtml(html) {
+  if (!html) return "";
+  // ブロック要素や改行タグを改行文字に置換
+  let text = html
+    .replace(/<(br|p|div|li|h1|h2|h3|h4|h5|h6)[^>]*>/gi, "\n")
+    .replace(/<\/p>|<\/div>|<\/li>/gi, "\n");
+  
+  // 残りのHTMLタグを除去
+  text = text.replace(/<[^>]*>/g, "");
+  
+  // 実体参照をデコード（最低限のもの）
+  text = text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"');
+    
+  // 連続する空行を整理
+  return text.split(/\n+/).map(s => s.trim()).filter(s => s).join("\n");
 }
 
 /**
