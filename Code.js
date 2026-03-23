@@ -145,11 +145,24 @@ function generateResumeFromSelectedRow() {
   let processedCount = 0;
   let selectedCount = 0;
   
+  const headers = data[0];
+  const selectColIdx = headers.indexOf('選択');
+  const dateColIdx = headers.indexOf('日程');
+  const titleColIdx = headers.indexOf('イベント名');
+  const nameColIdx = headers.indexOf('候補者名');
+  const statusColIdx = headers.indexOf('ステータス');
+  const urlColIdx = headers.indexOf('URL');
+  const memoColIdx = headers.indexOf('メモ(非表示)');
+  
+  if (statusColIdx === -1 || urlColIdx === -1 || memoColIdx === -1) {
+    SpreadsheetApp.getUi().alert('シートのヘッダー（ステータス、URL、またはメモ）が見つかりません。シートが正しく初期化されているか確認してください。');
+    return;
+  }
+  
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    // チェックボックスの値（Booleanとして判定、または文字列の"TRUE"を考慮）
-    const isSelected = (row[0] === true || String(row[0]).toUpperCase() === 'TRUE');
-    const status = row[4];
+    const isSelected = (row[selectColIdx] === true || String(row[selectColIdx]).toUpperCase() === 'TRUE');
+    const status = row[statusColIdx];
     
     if (isSelected) {
       selectedCount++;
@@ -158,10 +171,10 @@ function generateResumeFromSelectedRow() {
         continue;
       }
       
-      const dateStr = row[1];
-      const title = row[2];
-      const candidateName = row[3];
-      const memo = row[6];
+      const dateStr = row[dateColIdx];
+      const title = row[titleColIdx];
+      const candidateName = row[nameColIdx];
+      const memo = row[memoColIdx];
       
       try {
         // メモおよびリンク先ドキュメントから全内容を取得
@@ -174,15 +187,15 @@ function generateResumeFromSelectedRow() {
         let finalName = candidateName;
         if ((!candidateName || candidateName === '不明') && resumeData.candidate_name) {
           finalName = resumeData.candidate_name;
-          sheet.getRange(i + 1, 4).setValue(finalName); // シートの名前列を更新
+          sheet.getRange(i + 1, nameColIdx + 1).setValue(finalName); // シートの名前列を更新
         }
         
         const docUrl = createResumeDocument(finalName, String(dateStr), resumeData);
         
         // シートを更新
-        sheet.getRange(i + 1, 5).setValue('完了');
-        sheet.getRange(i + 1, 6).setFormula(`=HYPERLINK("${docUrl}", "📄 職務経歴書を開く")`);
-        sheet.getRange(i + 1, 1).setValue(false); // チェックボックスを外す
+        sheet.getRange(i + 1, statusColIdx + 1).setValue('完了');
+        sheet.getRange(i + 1, urlColIdx + 1).setFormula(`=HYPERLINK("${docUrl}", "📄 職務経歴書を開く")`);
+        sheet.getRange(i + 1, selectColIdx + 1).setValue(false); // チェックボックスを外す
         
         SpreadsheetApp.flush(); // UIを即座に更新
         processedCount++;
