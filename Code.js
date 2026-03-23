@@ -178,9 +178,19 @@ function generateResumeFromSelectedRow() {
         const docUrl = createResumeDocument(finalName, String(dateStr), resumeData);
         Logger.log('生成されたドキュメントURL: ' + docUrl);
         
-        // シートを更新（連動性を高めるためまとめて更新）
-        sheet.getRange(i + 1, 5, 1, 2).setValues([['完了', docUrl]]);
-        sheet.getRange(i + 1, 1).setValue(false); // チェックボックスを外す
+        // 列インデックスを動的に取得して確実に書き込む
+        const headers = data[0];
+        const statusCol = headers.indexOf('ステータス') + 1 || 5;
+        const urlCol = headers.indexOf('URL') + 1 || 6;
+        const checkboxCol = headers.indexOf('選択') + 1 || 1;
+        
+        Logger.log(`書き込み先: ステータス=${statusCol}, URL=${urlCol}`);
+        
+        // シートを更新
+        sheet.getRange(i + 1, statusCol).setValue('完了');
+        // ハイパーリンク形式で確実に表示させる
+        sheet.getRange(i + 1, urlCol).setFormula(`=HYPERLINK("${docUrl}", "開く")`);
+        sheet.getRange(i + 1, checkboxCol).setValue(false);
         
         SpreadsheetApp.flush(); // 即座に画面へ反映
         processedCount++;
