@@ -19,7 +19,7 @@ const CONFIG = {
   GEMINI_MODEL: 'gemini-flash-latest',
   
   // 検索対象のキーワード
-  SEARCH_KEYWORD: '面談',
+  SEARCH_KEYWORD: '初回面談',
   
   // 取得を開始する特定の日付（例: '2026-03-01'）
   // 指定しない（null）場合は、DAYS_BACKが適用されます
@@ -83,8 +83,7 @@ function fetchRecentInterviews() {
   // フィルタリング：タイトルまたは説明にキーワードが含まれる、または「氏名：」がある
   const interviewEvents = events.filter(e => {
     const title = e.getTitle();
-    const desc = e.getDescription();
-    return title.includes(CONFIG.SEARCH_KEYWORD) || desc.includes(CONFIG.SEARCH_KEYWORD) || desc.includes('氏名：');
+    return title.includes(CONFIG.SEARCH_KEYWORD);
   });
   
   if (interviewEvents.length === 0) {
@@ -163,10 +162,8 @@ function generateResumeFromSelectedRow() {
       const memo = row[6];
       
       try {
-        // メモおよびリンク先ドキュメントから全内容を取得
-        const fullContent = getFullContentFromMemo(memo);
-        
-        const resumeData = callGeminiAPI(fullContent);
+        // カレンダーのメモ欄の内容だけを使用（ドキュメント取得は不要という依頼に基づき、直接memoを渡す）
+        const resumeData = callGeminiAPI(memo);
         
         // AIが特定した名前があれば、それを使う（「不明」だった場合の補完）
         let finalName = candidateName;
