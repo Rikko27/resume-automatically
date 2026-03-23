@@ -114,6 +114,8 @@ function fetchRecentInterviews() {
     }
   });
   
+  sheet.hideColumns(7); // 全てのデータ読み込み後に再度非表示を確認
+  
   // チェックボックスを全行に再適用（appendRowでの値上書き対策）
   const maxRows = sheet.getMaxRows();
   if (maxRows >= 2) {
@@ -210,6 +212,7 @@ function getOrCreateSheet() {
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.SHEET_NAME);
     sheet.appendRow(['選択', '日程', 'イベント名', '候補者名', 'ステータス', 'URL', 'メモ(非表示)']);
+    sheet.hideColumns(7); // メモ列を非表示にする
     sheet.setFrozenRows(1);
     // メモ列を非表示に
     sheet.hideColumns(7);
