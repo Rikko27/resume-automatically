@@ -181,9 +181,10 @@ function generateResumeFromSelectedRow() {
         
         // シートを更新
         sheet.getRange(i + 1, 5).setValue('完了');
-        sheet.getRange(i + 1, 6).setValue(docUrl);
+        sheet.getRange(i + 1, 6).setFormula(`=HYPERLINK("${docUrl}", "📄 職務経歴書を開く")`);
         sheet.getRange(i + 1, 1).setValue(false); // チェックボックスを外す
         
+        SpreadsheetApp.flush(); // UIを即座に更新
         processedCount++;
       } catch (e) {
         Logger.log('エラーが発生しました: ' + e.toString());
