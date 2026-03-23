@@ -340,6 +340,10 @@ function callGeminiAPI(memo) {
       "period": "期間（例：2020年4月～2023年3月）",
       "employment_type": "雇用形態（例：正社員）",
       "position": "役職",
+      "capital": "資本金（例：1,000万円）",
+      "employees": "従業員数（例：50名）",
+      "department": "担当部署名",
+      "business_content": "事業内容の簡潔な説明",
       "overview": "【業務内容】にあたる概要（ミッションや役割を2-3行で）",
       "tasks": ["具体的なタスク（箇条書き用）"],
       "achievements": ["定量的な成果や表彰歴（箇条書き用）"],
@@ -452,12 +456,26 @@ function createResumeDocument(name, date, data) {
 
   // 2. 職務経歴
   addSectionHeader(body, '■ 職務経歴');
+  const numbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+  
   (data.job_history || []).forEach((job, index) => {
-    // 職務経歴ヘッダー情報（太字なし）
-    const headerText = `${job.period}  ${job.company_name}（${job.employment_type || '正社員'}）  役職：${job.position || '－'}`;
-    body.appendParagraph(headerText).setBold(false).setFontSize(11);
+    const num = numbers[index] || (index + 1);
     
-    // 2列のテーブルを作成
+    // 1. ■職務経歴① 会社名 (太字)
+    body.appendParagraph(`■職務経歴${num} ${job.company_name}`).setBold(true).setFontSize(11);
+    
+    // 2. 期間・会社名・雇用形態・役職 (太字)
+    const headerLine = `${job.period}（${job.employment_type || '正社員'}）${job.company_name} 役職：${job.position || '－'}`;
+    body.appendParagraph(headerLine).setBold(true).setFontSize(11);
+    
+    // 3. ■事業内容 【資本金】... (標準)
+    const bizInfo = `■事業内容 【資本金】${job.capital || '－'} 【従業員数】${job.employees || '－'}`;
+    body.appendParagraph(bizInfo).setBold(false).setFontSize(11);
+    
+    // 4. 【担当部署】... (標準)
+    body.appendParagraph(`【担当部署】${job.department || '－'}`).setBold(false).setFontSize(11);
+    
+    // 2列のテーブルを作成 (標準)
     const table = body.appendTable();
     
     // 表のヘッダー（太字なし）
