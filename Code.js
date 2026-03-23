@@ -304,11 +304,11 @@ function callGeminiAPI(memo) {
   "job_history": [
     {
       "company_name": "会社名",
-      "period": "期間",
-      "business_content": "事業内容",
-      "job_details": "職務内容",
-      "achievements": "実績（数値を含む）",
-      "points": "ポイント（成果の理由とエピソード）"
+      "period": "期間（例：2020年4月～2023年3月）",
+      "overview": "従事したプロジェクトや役割の概要（例：〇〇プロジェクトに従事）",
+      "tasks": ["具体的なタスク1", "具体的なタスク2"],
+      "achievements": ["成果・推移1（数値含む）", "成果・推移2（数値含む）"],
+      "points": "最も強調したい戦略や工夫点（重要な箇所を**で囲む）"
     }
   ],
   "skills_story": "活かせる経験・知識・スキルの内容（ストーリー形式）"
@@ -411,18 +411,43 @@ function createResumeDocument(name, date, data) {
   body.appendParagraph("");
 
   // 2. 職務経歴
-  addSectionHeader(body, "■ 職務経歴");
-  (data.job_history || []).forEach((job, index) => {
+  addSectionHeader(body, '■ 職務経歴');
+  (data.job_history || []).forEach((job) => {
     body.appendParagraph(job.company_name).setBold(true).setFontSize(12);
-    body.appendParagraph(`期間：${job.period}`);
-    body.appendParagraph(`事業内容：${job.business_content}`);
-    body.appendParagraph(`職務内容：\n${job.job_details}`);
-    body.appendParagraph(`実績：\n${job.achievements}`);
     
-    const pointPara = body.appendParagraph(`ポイント：\n${job.points}`);
-    pointPara.setItalic(true).setForegroundColor('#333333');
+    // 2列のテーブルを作成
+    const table = body.appendTable();
+    const row = table.appendTableRow();
     
-    body.appendHorizontalRule();
+    // 左列：期間
+    const leftCell = row.appendTableCell(job.period || '');
+    leftCell.setWidth(100);
+    leftCell.setVerticalAlignment(DocumentApp.VerticalAlignment.TOP);
+    
+    // 右列：主な職務内容
+    const rightCell = row.appendTableCell();
+    
+    // 概要
+    rightCell.appendParagraph(job.overview || '').setBold(true);
+    
+    // 担当業務
+    rightCell.appendParagraph('【担当業務】').setBold(true);
+    (job.tasks || []).forEach(task => {
+      rightCell.appendListItem(task).setGlyphType(DocumentApp.GlyphType.BULLET);
+    });
+    
+    // 実績
+    rightCell.appendParagraph('■実績').setBold(true);
+    (job.achievements || []).forEach(ach => {
+      rightCell.appendListItem(ach).setGlyphType(DocumentApp.GlyphType.BULLET);
+    });
+    
+    // ポイント
+    rightCell.appendParagraph('■ポイント').setBold(true);
+    const pointPara = rightCell.appendParagraph('');
+    appendFormattedText(pointPara, job.points || '');
+    
+    body.appendParagraph(""); // スペース
   });
 
   // 3. 活かせる経験・知識・スキル
@@ -444,7 +469,20 @@ function addSectionHeader(body, text) {
     [DocumentApp.Attribute.SPACING_BEFORE]: 12,
     [DocumentApp.Attribute.SPACING_AFTER]: 6
   });
-  body.appendHorizontalRule();
+}
+
+/**
+ * 太字マーカー（**）を処理してパラグラフに追加するヘルパー
+ */
+function appendFormattedText(paragraph, text) {
+  const parts = text.split(/(\*\*.*?\*\*)/);
+  parts.forEach(part => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      paragraph.appendText(part.slice(2, -2)).setBold(true);
+    } else {
+      paragraph.appendText(part).setBold(false);
+    }
+  });
 }
 
 function getOrCreateFolder(folderName) {
