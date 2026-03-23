@@ -307,10 +307,10 @@ function callGeminiAPI(memo) {
       "period": "期間（例：2020年4月～2023年3月）",
       "employment_type": "雇用形態（例：正社員）",
       "position": "役職",
-      "overview": "従事したプロジェクトや役割の概要",
-      "tasks": ["具体的なタスク（太字マーカーなどは使用しないでください）"],
-      "achievements": ["具体的な数値実績（太字マーカーなどは使用しないでください）"],
-      "points": "最も強調したい戦略や工夫点（太字マーカーなどは使用しないでください）"
+      "overview": "【業務内容】にあたる概要（ミッションや役割を2-3行で）",
+      "tasks": ["具体的なタスク（箇条書き用）"],
+      "achievements": ["定量的な成果や表彰歴（箇条書き用）"],
+      "points": "工夫した点や戦略（2-3行の文章）"
     }
   ],
   "skills_story": "活かせる経験・知識・スキルの内容（ストーリー形式）"
@@ -437,26 +437,30 @@ function createResumeDocument(name, date, data) {
     // 右列：主な職務内容
     const rightCell = contentRow.appendTableCell();
     
-    // 概要
+    // 1. 【業務内容】
+    rightCell.appendParagraph('【業務内容】').setBold(false);
     rightCell.appendParagraph(job.overview || '').setBold(false);
+    rightCell.appendParagraph(''); // 空行
     
-    // 担当業務
+    // 2. 【担当業務】
     rightCell.appendParagraph('【担当業務】').setBold(false);
     (job.tasks || []).forEach(task => {
       const li = rightCell.appendListItem('');
       li.setGlyphType(DocumentApp.GlyphType.BULLET);
       appendFormattedText(li, task);
     });
+    rightCell.appendParagraph(''); // 空行
     
-    // 実績
+    // 3. ■実績
     rightCell.appendParagraph('■実績').setBold(false);
     (job.achievements || []).forEach(ach => {
       const li = rightCell.appendListItem('');
       li.setGlyphType(DocumentApp.GlyphType.BULLET);
       appendFormattedText(li, ach);
     });
+    rightCell.appendParagraph(''); // 空行
     
-    // ポイント
+    // 4. ■ポイント
     rightCell.appendParagraph('■ポイント').setBold(false);
     const pointPara = rightCell.appendParagraph('');
     appendFormattedText(pointPara, job.points || '');
