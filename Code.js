@@ -447,7 +447,7 @@ function createResumeDocument(name, date, data) {
   
   // 1. キャリアサマリ
   addSectionHeader(body, "■ キャリアサマリ");
-  body.appendParagraph(data.career_summary || '');
+  body.appendParagraph(data.career_summary || '').setBold(false);
   body.appendParagraph("");
 
   // 2. 職務経歴
