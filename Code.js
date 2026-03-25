@@ -18,15 +18,22 @@ const CONFIG = {
   // ご自身のリストに存在し、かつエラーが出にくい「gemini-flash-latest」を指定します
   GEMINI_MODEL: 'gemini-flash-latest',
   
-  // 検索対象のキーワード
-  SEARCH_KEYWORD: '初回面談',
+  // 検索対象のカレンダーの絞り込みキーワード (例: '佐木川')
+  // 空（""）にすると全カレンダー（マイカレンダー、共有カレンダー等）を検索します
+  CALENDAR_NAME_FILTER: '',
   
   // 取得を開始する特定の日付（例: '2026-03-01'）
-  // 指定しない（null）場合は、DAYS_BACKが適用されます
+  // 指定しない（null）場合は、今日を起点にします
   FETCH_START_DATE: null,
   
-  // 何日前までのイベントを取得するか（FETCH_START_DATEがnullの場合のみ使用）
-  DAYS_BACK: 21,
+  // 今日から何日前までのイベントを取得するか
+  DAYS_BACK: 0,
+  
+  // 今日から何日後までのイベントを取得するか
+  DAYS_FORWARD: 14,
+  
+  // 抽出対象のイベントを特定するキーワード (タイトルまたは説明文に含まれるもの)
+  SEARCH_KEYWORD: '初回面談',
   
   // 生成された職務経歴書を保存するフォルダ名
   OUTPUT_FOLDER_NAME: '生成済み職務経歴書',
@@ -40,110 +47,163 @@ const CONFIG = {
 // ==========================================
 
 /**
+ * エラーを回避しつつアラートを表示する（スプレッドシート用）
+ */
+function safeAlert(msg) {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    if (ui) ui.alert(msg);
+  } catch (e) {
+    Logger.log('Alert (skip UI): ' + msg);
+  }
+}
+
+/**
  * スプレッドシートを開いた時に実行される
  */
 function onOpen() {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('📑 職務経歴書ツール')
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('📑 職務経歴書ツール')
       .addItem('1. カレンダーから面談を取得', 'fetchRecentInterviews')
       .addItem('2. 選択した行の職務経歴書を生成', 'generateResumeFromSelectedRow')
+      .addSeparator()
+      .addSubMenu(ui.createMenu('⏰ 自動実行設定')
+        .addItem('▶︎ 毎朝10時の自動同期をONにする', 'setupDailyTrigger')
+        .addItem('■ 自動同期をOFFにする', 'removeDailyTrigger')
+        .addItem('🔍 設定状況を確認する', 'checkTriggerStatus'))
       .addSeparator()
       .addItem('🔑 APIキーの初期設定/再設定', 'setupApiKey')
       .addItem('🔍 診断：カレンダー取得の確認', 'diagnoseCalendar')
       .addItem('APIモデル一覧の確認（デバッグ用）', 'debugListModels')
       .addToUi();
+  } catch (e) {
+    // スプレッドシートUIがない場合はスキップ
+  }
 }
 
 /**
  * カレンダーから最近の面談イベントを取得し、スプレッドシートに書き出す
+ * @return {Object} 取得結果（count: 取得数, message: メッセージ）
  */
 function fetchRecentInterviews() {
-  const sheet = getOrCreateSheet();
-  const now = new Date();
-  
-  let startTime;
-  if (CONFIG.FETCH_START_DATE) {
-    startTime = new Date(CONFIG.FETCH_START_DATE);
-    startTime.setHours(0, 0, 0, 0);
-  } else {
-    startTime = new Date(now.getTime() - (CONFIG.DAYS_BACK * 24 * 60 * 60 * 1000));
-  }
-  
-  // カレンダーの取得
-  let targetCalendar = CalendarApp.getCalendarsByName(CONFIG.SEARCH_KEYWORD)[0];
-  if (!targetCalendar) {
-    targetCalendar = CalendarApp.getDefaultCalendar();
-    Logger.log('「' + CONFIG.SEARCH_KEYWORD + '」という名前のカレンダーは見つからなかったため、メインのカレンダーを使用します。');
-  } else {
-    Logger.log('「' + CONFIG.SEARCH_KEYWORD + '」という名前のカレンダーから読み込みます。');
-  }
+  try {
+    const sheet = getOrCreateSheet();
+    const now = new Date();
+    
+    let startTime;
+    if (CONFIG.FETCH_START_DATE) {
+      startTime = new Date(CONFIG.FETCH_START_DATE);
+      startTime.setHours(0, 0, 0, 0);
+    } else {
+      startTime = new Date(now.getTime() - (CONFIG.DAYS_BACK * 24 * 60 * 60 * 1000));
+    }
+    
+    // 取得終了時間を現在（または未来）に設定
+    const endTime = new Date(now.getTime() + (CONFIG.DAYS_FORWARD * 24 * 60 * 60 * 1000));
+    
+    // ★ 実行者のプライマリカレンダーのみを取得対象にする
+    const calendars = [CalendarApp.getDefaultCalendar()];
+    let interviewEvents = [];
+    
+    calendars.forEach(cal => {
+      const name = cal.getName();
+      
+      try {
+        const events = cal.getEvents(startTime, endTime);
+        const filtered = events.filter(e => {
+          const title = e.getTitle();
+          const desc = e.getDescription();
+          return title.includes(CONFIG.SEARCH_KEYWORD) || desc.includes(CONFIG.SEARCH_KEYWORD);
+        });
+        
+        if (filtered.length > 0) {
+          Logger.log('カレンダー「' + name + '」から ' + filtered.length + ' 件見つかりました。');
+          interviewEvents = interviewEvents.concat(filtered);
+        }
+      } catch (e) {
+        Logger.log('スキップ: ' + name);
+      }
+    });
 
-  const events = targetCalendar.getEvents(startTime, now);
-  Logger.log('期間内に ' + events.length + ' 件のイベントが見つかりました。');
-  
-  // フィルタリング：タイトルまたは説明にキーワードが含まれる
-  const interviewEvents = events.filter(e => {
-    const title = e.getTitle();
-    const desc = e.getDescription();
-    return title.includes(CONFIG.SEARCH_KEYWORD) || desc.includes(CONFIG.SEARCH_KEYWORD);
-  });
-  
-  if (interviewEvents.length === 0) {
-    SpreadsheetApp.getUi().alert('対象のイベント（' + CONFIG.SEARCH_KEYWORD + '）が見つかりませんでした。期間：' + Utilities.formatDate(startTime, 'Asia/Tokyo', 'yyyy/MM/dd') + ' ～ ' + Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy/MM/dd'));
-    return;
-  }
-  
-  // 既存のデータを取得（重複チェック用）
-  const lastRow = sheet.getLastRow();
-  const existingTitles = lastRow > 1 
-    ? sheet.getRange(2, 3, lastRow - 1, 1).getValues().flat() 
-    : [];
-  
-  // 実際にデータが入っている最後の行を探す（チェックボックス列を除外して判定）
-  let actualLastRow = 1;
-  if (lastRow > 1) {
-    const dataRange = sheet.getRange(1, 2, lastRow, 1).getValues();
-    for (let i = dataRange.length - 1; i >= 0; i--) {
-      if (dataRange[i][0] !== "") {
+    // 重複を排除 (複数のカレンダーにまたがる場合)
+    const seenIds = new Set();
+    const targetEvents = [];
+    interviewEvents.forEach(e => {
+      const id = e.getId();
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        targetEvents.push(e);
+      }
+    });
+
+    if (targetEvents.length === 0) {
+      const msg = '対象のイベントが見つかりませんでした。すべてのカレンダーをスキャン済です。';
+      safeAlert(msg);
+      return { count: 0, message: msg };
+    }
+    
+    // ★ 一括書き込み用にデータを収集する
+    const rowsToAdd = [];
+    const lastRow = sheet.getLastRow();
+    
+    // 重複チェック用の既存タイトル取得 (C列: イベント内容)
+    const existingTitles = lastRow > 1 ? sheet.getRange(2, 3, lastRow - 1, 1).getValues().flat() : [];
+    
+    // 実際にデータがある最後の行を探す（B列：日程 を基準にする）
+    const bValues = lastRow > 0 ? sheet.getRange(1, 2, lastRow, 1).getValues().flat() : [];
+    let actualLastRow = 1;
+    for (let i = bValues.length - 1; i >= 0; i--) {
+      if (bValues[i] !== '') {
         actualLastRow = i + 1;
         break;
       }
     }
-  }
 
-  interviewEvents.forEach(event => {
-    const title = event.getTitle();
-    if (!existingTitles.includes(title)) {
-      const date = Utilities.formatDate(event.getStartTime(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-      const description = event.getDescription();
-      const candidateName = extractCandidateName(description) || '不明';
+    targetEvents.forEach(event => {
+      const title = event.getTitle();
+      const startTime = event.getStartTime();
+      // タイトルと開始時間の組み合わせでより厳密に重複チェック
+      const dateKey = Utilities.formatDate(startTime, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
       
-      actualLastRow++;
-      sheet.getRange(actualLastRow, 1, 1, 7).setValues([[
-        false, // 選択用
-        date,
-        title,
-        candidateName,
-        '未作成',
-        '', // リンク
-        description
-      ]]);
-    }
-  });
-  
-  // チェックボックスをデータがある行だけに適用
-  if (actualLastRow >= 2) {
-    const rule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
-    sheet.getRange(2, 1, actualLastRow - 1, 1).setDataValidation(rule);
+      if (!existingTitles.includes(title)) {
+        const candidateName = extractCandidateName(title, event.getDescription()) || '不明';
+        rowsToAdd.push([
+          false, // 選択用
+          dateKey,
+          title,
+          candidateName,
+          '未作成',
+          '', // リンク
+          event.getDescription()
+        ]);
+      }
+    });
     
-    // データがない下の行のチェックボックス（もしあれば）を削除
-    const totalMaxRows = sheet.getMaxRows();
-    if (totalMaxRows > actualLastRow) {
-      sheet.getRange(actualLastRow + 1, 1, totalMaxRows - actualLastRow, 1).clearDataValidations().clearContent();
+    if (rowsToAdd.length > 0) {
+      // まとめて書き込み (高速)
+      sheet.getRange(actualLastRow + 1, 1, rowsToAdd.length, 7).setValues(rowsToAdd);
+      
+      // チェックボックスの適用
+      const rule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+      sheet.getRange(actualLastRow + 1, 1, rowsToAdd.length, 1).setDataValidation(rule);
+      
+      const successMsg = rowsToAdd.length + ' 件の新しい面談を取得・保存しました。';
+      Logger.log('【成功】' + successMsg);
+      safeAlert(successMsg);
+      return { count: rowsToAdd.length, message: successMsg };
+    } else {
+      const noNewMsg = '新しい面談は見つかりませんでした（既に保存済みか、対象外です）。';
+      Logger.log('【終了】' + noNewMsg);
+      safeAlert(noNewMsg);
+      return { count: 0, message: noNewMsg };
     }
+  } catch (e) {
+    const errorMsg = '重大なエラー: ' + e.toString();
+    Logger.log(errorMsg);
+    safeAlert(errorMsg);
+    return { count: 0, message: errorMsg };
   }
-  
-  SpreadsheetApp.getUi().alert('面談イベントを取得しました。');
 }
 
 /**
@@ -152,13 +212,13 @@ function fetchRecentInterviews() {
 function generateResumeFromSelectedRow() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) {
-    SpreadsheetApp.getUi().alert('「' + CONFIG.SHEET_NAME + '」シートが見つかりません。先に「カレンダーから面談を取得」を実行してください。');
+    safeAlert('「' + CONFIG.SHEET_NAME + '」シートが見つかりません。先に「カレンダーから面談を取得」を実行してください。');
     return;
   }
   
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) {
-    SpreadsheetApp.getUi().alert('シートにデータがありません。先に「カレンダーから面談を取得」を実行してください。');
+    safeAlert('シートにデータがありません。先に「カレンダーから面談を取得」を実行してください。');
     return;
   }
   
@@ -219,17 +279,17 @@ function generateResumeFromSelectedRow() {
       } catch (e) {
         Logger.log('エラーが発生しました: ' + e.toString());
         sheet.getRange(i + 1, 5).setValue('エラー');
-        SpreadsheetApp.getUi().alert('「' + candidateName + '」様の生成中にエラーが発生しました：\n' + e.toString());
+        safeAlert('「' + candidateName + '」様の生成中にエラーが発生しました：\n' + e.toString());
       }
     }
   }
   
   if (processedCount > 0) {
-    SpreadsheetApp.getUi().alert(processedCount + ' 件の職務経歴書を生成しました。');
+    safeAlert(processedCount + ' 件の職務経歴書を生成しました。');
   } else if (selectedCount === 0) {
-    SpreadsheetApp.getUi().alert('左端の「選択」欄にチェックが入っている行がありません。\n作成したい人の列にあるチェックボックスをクリックして、✔︎を入れてから実行してください。');
+    safeAlert('左端の「選択」欄にチェックが入っている行がありません。\n作成したい人の列にあるチェックボックスをクリックして、✔︎を入れてから実行してください。');
   } else {
-    SpreadsheetApp.getUi().alert('選択された行はすべて「完了」になっています。新しく作成する場合は、ステータスを消すか、別の行を選択してください。');
+    safeAlert('選択された行はすべて「完了」になっています。新しく作成する場合は、ステータスを消すか、別の行を選択してください。');
   }
 }
 
@@ -258,38 +318,42 @@ function getOrCreateSheet() {
   return sheet;
 }
 
-function extractCandidateName(description) {
-  // 複数のパターンに対応 (氏名, 名前, 候補者名 など)
+/**
+ * 説明文またはタイトルから候補者名を抽出する
+ */
+function extractCandidateName(title, description) {
+  // 1. タイトルから探す (最初に出てきた名前を優先)
+  if (title) {
+    // 最初に出てくる、空白、x、:、：、までを名前として抽出
+    const firstMatch = title.trim().match(/^([^\s：:x]{2,10})/i);
+    if (firstMatch) {
+      const name = firstMatch[1].trim();
+      // もし抽出されたのが「初回面談」などのキーワードなら次へ
+      if (!name.includes('初回面談') && !name.includes('面談')) {
+        return name;
+      }
+    }
+    
+    // 他のパターン (念のため)
+    const bracketMatch = title.match(/】([^／\s：:]+)/);
+    if (bracketMatch) return bracketMatch[1];
+  }
+
+  // 2. 説明文から探す
+  if (!description) return null;
   const regex = /(?:氏名|名前|候補者名)\s*[:：]\s*([^\n\r]+)/i;
   const match = description.match(regex);
   return match ? match[1].trim() : null;
 }
 
 /**
- * メモ欄から情報を抽出する。Googleドキュメントのリンクがあれば、その中身も取得する。
+ * メモ欄から情報を抽出する。
+ * カレンダーのメモ（説明文）の内容だけを直接AIへ渡します。
  */
 function getFullContentFromMemo(memo) {
   if (!memo) return '';
   
-  let fullContent = '【面談メモ】\n' + memo + '\n\n';
-  
-  // GoogleドキュメントのURLを抽出 (docs.google.com/document/d/...)
-  const docUrlMatch = memo.match(/https:\/\/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/);
-  
-  if (docUrlMatch) {
-    const docId = docUrlMatch[1];
-    try {
-      const doc = DocumentApp.openById(docId);
-      const docText = doc.getBody().getText();
-      fullContent += '【提供されたドキュメント（文字起こし等）の内容】\n' + docText;
-      Logger.log('ドキュメントから内容を取得しました: ' + doc.getName());
-    } catch (e) {
-      Logger.log('ドキュメントの取得に失敗しました: ' + e.toString());
-      fullContent += '\n※注意: リンク先のドキュメントを読み取れませんでした。権限を確認してください。';
-    }
-  }
-  
-  return fullContent;
+  return '【面談メモ】\n' + memo + '\n\n';
 }
 
 function callGeminiAPI(memo) {
@@ -324,7 +388,8 @@ function callGeminiAPI(memo) {
    - 日付は自動的に本日（${Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy/MM/dd")}）として扱ってください。
 
 4. 正確性と表現力の高度なバランス：
-   - 「数値、期間、社名」といった具体的事実は、絶対に捏造しないでください。不明な場合は「[要確認]」とします。
+   - カレンダーのメモ内に散在する「在籍企業名」「在籍期間（年月など）」「所属部署・役職」の情報を極めて注意深く拾い上げ、必ずJSONの対応するフィールド（company_name, period, department, position）に反映させてください。
+   - 「数値、期間、社名」といった具体的事実は、絶対に捏造しないでください。情報が不足している・不明な場合は無理に推測せず「[要確認]」とします。
    - 一方で、具体的なエピソードや職務内容については、提供された事実の断片から、プロのキャリアアドバイザーとしてふさわしい「専門的な言い回し」や「深掘りした記述」に膨らませてください。
    - 採用担当者が一目で「レベルが高い」と感じるような、洗練されたビジネス日本語を使用してください。
 
@@ -400,7 +465,7 @@ ${memo}
 function debugListModels() {
   const apiKey = CONFIG.GEMINI_API_KEY;
   if (apiKey === 'YOUR_API_KEY_HERE' || apiKey === 'YOUR_GEMINI_API_KEY') {
-    SpreadsheetApp.getUi().alert('APIキーが設定されていません。');
+    safeAlert('APIキーが設定されていません。');
     return;
   }
 
@@ -412,12 +477,12 @@ function debugListModels() {
     if (json.models) {
       const modelNames = json.models.map(m => m.name.replace('models/', '')).join('\n');
       Logger.log('使用可能なモデル一覧:\n' + modelNames);
-      SpreadsheetApp.getUi().alert('使用可能なモデル一覧:\n\n' + modelNames + '\n\nこの中にある名前をCONFIG.GEMINI_MODELに設定してください。');
+      safeAlert('使用可能なモデル一覧:\n\n' + modelNames + '\n\nこの中にある名前をCONFIG.GEMINI_MODELに設定してください。');
     } else {
-      SpreadsheetApp.getUi().alert('モデル一覧を取得できませんでした。応答: ' + response.getContentText());
+      safeAlert('モデル一覧を取得できませんでした。応答: ' + response.getContentText());
     }
   } catch (e) {
-    SpreadsheetApp.getUi().alert('エラーが発生しました: ' + e.toString());
+    safeAlert('エラーが発生しました: ' + e.toString());
   }
 }
 
@@ -501,18 +566,16 @@ function createResumeDocument(name, date, data) {
     // 2. 【担当業務】
     rightCell.appendParagraph('【担当業務】').setBold(false);
     (job.tasks || []).forEach(task => {
-      const li = rightCell.appendListItem('');
-      li.setGlyphType(DocumentApp.GlyphType.BULLET);
-      appendFormattedText(li, task);
+      const para = rightCell.appendParagraph('・');
+      appendFormattedText(para, task);
     });
     rightCell.appendParagraph(''); // 空行
     
     // 3. ■実績
     rightCell.appendParagraph('■実績').setBold(false);
     (job.achievements || []).forEach(ach => {
-      const li = rightCell.appendListItem('');
-      li.setGlyphType(DocumentApp.GlyphType.BULLET);
-      appendFormattedText(li, ach);
+      const para = rightCell.appendParagraph('・');
+      appendFormattedText(para, ach);
     });
     rightCell.appendParagraph(''); // 空行
     
@@ -528,10 +591,9 @@ function createResumeDocument(name, date, data) {
   // 3. 活かせる経験・知識・スキル
   addSectionHeader(body, '■ 活かせる経験・知識・スキル');
   (data.skills_list || []).forEach(skill => {
-    const li = body.appendListItem('');
-    li.setGlyphType(DocumentApp.GlyphType.BULLET);
-    appendFormattedText(li, skill);
-    li.setBold(false); // 項目名も含め太字にしない
+    const para = body.appendParagraph('・');
+    appendFormattedText(para, skill);
+    para.setBold(false); // 項目名も含め太字にしない
   });
 
   body.appendParagraph("以上").setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
@@ -577,21 +639,25 @@ function getOrCreateFolder(folderName) {
 /**
  * 画面上のプロンプトからAPIキーを安全にスクリプトプロパティに保存する
  */
-function debugSetApiKey() {
-  const ui = SpreadsheetApp.getUi();
-  const response = ui.prompt('Gemini APIキーの登録', 
-    'ご自身のGemini APIキー（AIza...で始まる文字列）を貼り付けてOKを押してください。\n' +
-    '※この操作により、GitHubに公開したコードを変更せずに安全にキーを保存できます。', 
-    ui.ButtonSet.OK_CANCEL);
-  
-  if (response.getSelectedButton() == ui.Button.OK) {
-    const key = response.getResponseText().trim();
-    if (key) {
-      PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', key);
-      ui.alert('APIキーを正常に保存しました！これで職務経歴書の生成が可能になります。');
-    } else {
-      ui.alert('キーが入力されなかったため、保存を中止しました。');
+function setupApiKey() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    const response = ui.prompt('Gemini APIキーの登録', 
+      'ご自身のGemini APIキー（AIza...で始まる文字列）を貼り付けてOKを押してください。\n' +
+      '※この操作により、GitHubに公開したコードを変更せずに安全にキーを保存できます。', 
+      ui.ButtonSet.OK_CANCEL);
+    
+    if (response.getSelectedButton() == ui.Button.OK) {
+      const key = response.getResponseText().trim();
+      if (key) {
+        PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', key);
+        safeAlert('APIキーを正常に保存しました！これで職務経歴書の生成が可能になります。');
+      } else {
+        safeAlert('キーが入力されなかったため、保存を中止しました。');
+      }
     }
+  } catch (e) {
+    Logger.log('UI not available for setupApiKey');
   }
 }
 
@@ -599,15 +665,78 @@ function debugSetApiKey() {
  * デバッグ用：現在使用可能なカレンダーを一覧表示する
  */
 function diagnoseCalendar() {
-  const calendars = CalendarApp.getAllCalendars();
+  const cal = CalendarApp.getDefaultCalendar();
   let msg = "【カレンダー取得診断結果】\n\n";
-  msg += "あなたの環境で利用可能なカレンダー:\n";
-  calendars.forEach(cal => {
-    msg += `- ${cal.getName()} (ID: ${cal.getId()})${cal.isPrimary() ? ' [メイン]' : ''}\n`;
-  });
+  msg += "現在、取得対象となっているカレンダー:\n";
+  msg += `- ${cal.getName()} (ID: ${cal.getId()}) [メイン]\n`;
   
   msg += `\n現在、タイトルまたは説明に「${CONFIG.SEARCH_KEYWORD}」が含まれる予定を検索しています。`;
-  msg += "\n※もし特定の名前のカレンダー（例：共有カレンダーなど）から取得したい場合は、そのカレンダー名を『初回面談』にするか、プログラムの設定を変更する必要があります。";
+  msg += "\n※現在は実行者のプライマリカレンダー（メイン）のみを検索する設定になっています。";
   
-  SpreadsheetApp.getUi().alert(msg);
+  safeAlert(msg);
+}
+
+// ==========================================
+// 自動化設定 (Automation Settings)
+// ==========================================
+
+/**
+ * 毎朝10時にカレンダー同期を実行するトリガーを設定する
+ */
+function setupDailyTrigger() {
+  // 既存の同一関数のトリガーを削除（重複防止）
+  removeDailyTrigger(true);
+  
+  // 毎日午前10時〜11時の間に実行するように設定
+  ScriptApp.newTrigger('fetchRecentInterviews')
+    .timeBased()
+    .atHour(10)
+    .everyDays(1)
+    .create();
+    
+  safeAlert('【設定完了】\n毎日午前10時頃に自動でカレンダーを確認し、新しい「初回面談」をシートに追加するようにしました。');
+}
+
+/**
+ * 自動同期のトリガーを解除する
+ */
+function removeDailyTrigger(isSilent) {
+  const triggers = ScriptApp.getProjectTriggers();
+  let found = false;
+  
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'fetchRecentInterviews') {
+      ScriptApp.deleteTrigger(triggers[i]);
+      found = true;
+    }
+  }
+  
+  if (!isSilent) {
+    if (found) {
+      safeAlert('【設定解除】\n自動同期をOFFにしました。');
+    } else {
+      safeAlert('現在、自動同期は設定されていません。');
+    }
+  }
+}
+
+/**
+ * 現在のオートメーション設定状況を確認する
+ */
+function checkTriggerStatus() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let isActive = false;
+  
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'fetchRecentInterviews') {
+      isActive = true;
+      break;
+    }
+  }
+  
+  if (isActive) {
+    safeAlert('【現在の設定】\n✅ 自動同期：ON (毎日10時頃)\n\n毎朝自動的にカレンダーの「初回面談」を取得してスプレッドシートを更新しています。');
+  } else {
+    safeAlert('【現在の設定】\n× 自動同期：OFF\n\n現在は手動での同期のみ可能です。');
+  }
 }
