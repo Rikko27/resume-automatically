@@ -167,7 +167,40 @@ function fetchRecentInterviews() {
       const dateKey = Utilities.formatDate(startTime, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
       
       if (!existingTitles.includes(title)) {
-        const candidateName = extractCandidateName(title, event.getDescription()) || '不明';
+        // HTMLタグの除去と改行の整理（見栄えの改善とAIへの入力適正化）
+        const rawDesc = event.getDescription() || '';
+        let cleanDesc = rawDesc
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<\/p>/gi, '\n')
+          .replace(/<[^>]+>/g, '')         // HTMLタグを除去
+          .replace(/&nbsp;/gi, ' ')        // 特殊文字をスペースに
+          .trim();
+        
+        // DriveリンクがHTMLタグ(href内)に隠れていた場合も考慮し、生テキストからIDを抽出して再付与する
+        let driveIds = extractDriveFileIds(rawDesc);
+        
+        // Advanced Calendar Serviceを用いて、UIから直接添付されたファイル(クリップマーク)のIDも取得する
+        try {
+          const apiEventId = event.getId().replace('@google.com', '');
+          // 対象カレンダーは実行者のプライマリカレンダーとしているため 'primary' を指定
+          const advancedEvent = Calendar.Events.get('primary', apiEventId);
+          if (advancedEvent && advancedEvent.attachments) {
+            advancedEvent.attachments.forEach(att => {
+              if (att.fileId && !driveIds.includes(att.fileId)) {
+                driveIds.push(att.fileId);
+              }
+            });
+          }
+        } catch (err) {
+          safeAlert('【エラー発覚①】カレンダーのクリップマーク取得で失敗しました：\n' + err.toString());
+        }
+
+        if (driveIds.length > 0) {
+          cleanDesc += '\n\n【添付ファイルリンク】\n' + driveIds.map(id => `https://drive.google.com/file/d/${id}/view`).join('\n');
+        }
+        
+        const candidateName = extractCandidateName(title, cleanDesc) || '不明';
+        
         rowsToAdd.push([
           false, // 選択用
           dateKey,
@@ -175,7 +208,7 @@ function fetchRecentInterviews() {
           candidateName,
           '未作成',
           '', // リンク
-          event.getDescription()
+          cleanDesc
         ]);
       }
     });
@@ -304,9 +337,10 @@ function getOrCreateSheet() {
     sheet = ss.insertSheet(CONFIG.SHEET_NAME);
     sheet.appendRow(['選択', '日程', 'イベント名', '候補者名', 'ステータス', 'URL', 'メモ(非表示)']);
     sheet.setFrozenRows(1);
-    // メモ列を非表示に
-    sheet.hideColumns(7);
   }
+  
+  // シートが作成・取得されるたびに、確実にG列(メモ列)を非表示にする
+  sheet.hideColumns(7);
   
   // 常にA2以降のデータがある範囲（シートの最大行まで）をチェックボックス形式にする
   const lastRow = sheet.getMaxRows();
@@ -347,6 +381,22 @@ function extractCandidateName(title, description) {
 }
 
 /**
+ * Google DriveのファイルIDを抽出する
+ */
+function extractDriveFileIds(text) {
+  if (!text) return [];
+  const ids = new Set();
+  const regex1 = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/g;
+  const regex2 = /drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/g;
+  
+  let match;
+  while ((match = regex1.exec(text)) !== null) { ids.add(match[1]); }
+  while ((match = regex2.exec(text)) !== null) { ids.add(match[1]); }
+  
+  return Array.from(ids);
+}
+
+/**
  * メモ欄から情報を抽出する。
  * カレンダーのメモ（説明文）の内容だけを直接AIへ渡します。
  */
@@ -368,70 +418,86 @@ function callGeminiAPI(memo) {
   // 互換性の高い v1beta エンドポイントを使用
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
-  const prompt = `あなたは「通過率が上がる職務経歴書」を作成する超一流のキャリアアドバイザーです。
-以下の【厳守ルール】に従い、提供された情報から最高品質の職務経歴書を作成してください。
+  const prompt = `あなたは「営業職の職務経歴書」を採用担当が一目でレベルが高いと評価する水準に整理・生成するプロのキャリアライターです。
+候補者情報をもとに、①職務経歴書（職務要約＋各社ブロック）と、②自己PR欄に転用できる再現性エピソード（skills_listへ格納）を作成してください。
 
-【厳守ルール】
-1. 構成は以下の3項目のみとし、他は一切追加しないでください：
-   - キャリアサマリ
-   - 職務経歴
-   - 活かせる経験・知識・スキル
-
-2. 各項目の記述ルール：
-   - キャリアサマリ：3-5文で簡潔かつ強力に。
-   - 職務経歴：各社ごとに「企業名」「期間」「事業内容」「職務内容」「実績（数値化）」「ポイント」を記述。
-     ※「ポイント」は文章で「なぜ成果が出たか」をエピソード付きで具体的に。
-   - 活かせる経験・知識・スキル：箇条書きは絶対に禁止。文章でストーリーとして記述。事実に基づきつつも、プロフェッショナルな表現で候補者の魅力を最大限に引き出してください。
-
-3. スタンス：
-   - 単なる情報の整理ではなく、採用担当者が「会いたい」と思う魅力的なアピールに仕上げること。
-   - 日付は自動的に本日（${Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy/MM/dd")}）として扱ってください。
-
-4. 正確性と表現力の高度なバランス：
-   - カレンダーのメモ内に散在する「在籍企業名」「在籍期間（年月など）」「所属部署・役職」の情報を極めて注意深く拾い上げ、必ずJSONの対応するフィールド（company_name, period, department, position）に反映させてください。
-   - 「数値、期間、社名」といった具体的事実は、絶対に捏造しないでください。情報が不足している・不明な場合は無理に推測せず「[要確認]」とします。
-   - 一方で、具体的なエピソードや職務内容については、提供された事実の断片から、プロのキャリアアドバイザーとしてふさわしい「専門的な言い回し」や「深掘りした記述」に膨らませてください。
-   - 採用担当者が一目で「レベルが高い」と感じるような、洗練されたビジネス日本語を使用してください。
+【最重要方針（品質担保）】
+1. 捏造の絶対禁止と【※要確認】の徹底：提供された情報（メモや添付PDF等）に書かれている事実・経歴・数値のみを使用してください。そこに書かれていない実績やエピソードを勝手に創作・追加することは一切禁じます。文章をプロらしく肉付け・整理するのは構いませんが、事実関係が読み取れない・不足している部分は勝手に推測せず、必ず「【※要確認】」としてください。
+2. 会社概要の補完：会社名が提示されている場合は、「company_name」にそのまま出力し、絶対に「要確認」で省略・上書きしないこと。その上で事業内容/規模等を一般的なビジネス知識で補完し、自信がない補完部分にのみ【※要確認】とする。
+3. 職務要約：全社歴をひとつに統合して作成し、各社ブロックには繰り返さないこと。
+4. 自己PR（skills_listへの格納）：提供情報から「課題の発見 → 仮説立て → 実行 → 結果」の順で構成した自然文（150〜250文字）を作成すること。箇条書き・感情語・自己評価は禁止。冒頭に必ず【経営層アプローチスキル】【課題発見・仮説設計スキル】などのスキル名を付けること。
 
 出力は必ず以下のJSONフォーマットに厳密に従い、JSONそのものだけを出力してください。Markdownのバッククォートなどは含めないでください。
 
 【JSONフォーマット】
 {
-  "candidate_name": "候補者のフルネーム（見つからない場合はnull）",
-  "career_summary": "キャリアサマリの内容",
+  "candidate_name": "候補者のフルネーム（「様」などの敬称やカッコは除外）",
+  "career_summary": "キャリアサマリの内容（全社歴を統合。情報不足は【※要確認】）",
   "job_history": [
     {
-      "company_name": "会社名",
-      "period": "期間（例：2020年4月～2023年3月）",
-      "employment_type": "雇用形態（例：正社員）",
-      "position": "役職",
-      "capital": "資本金（例：1,000万円）",
-      "employees": "従業員数（例：50名）",
-      "department": "担当部署名",
-      "business_content": "事業内容の簡潔な説明",
-      "overview": "【業務内容】にあたる概要（ミッションや役割を2-3行で）",
-      "tasks": ["具体的なタスク（箇条書き用）"],
-      "achievements": ["定量的な成果や表彰歴（箇条書き用）"],
-      "points": "工夫した点や戦略（2-3行の文章）"
+      "company_name": "会社名（提示された社名をそのまま出力。「要確認」として消さないこと）",
+      "period": "期間（例：2020年4月～2023年3月 / 不明は【※要確認】）",
+      "employment_type": "雇用形態",
+      "position": "役職【※要確認】",
+      "capital": "資本金【※要確認】",
+      "employees": "従業員数【※要確認】",
+      "department": "担当部署名【※要確認】",
+      "business_content": "事業内容の簡潔な説明（補完不可なら【※要確認】）",
+      "overview": "【業務内容】にあたる概要（誰の/何の課題を、何を用いて、どう解決したか）",
+      "tasks": ["具体的なタスク（箇条書き。リード獲得/アプローチ/提案/商談/クロージング等）"],
+      "achievements": ["定量的な成果、KPI、成功事例（箇条書き。事実のみ、不明は【※要確認】）"],
+      "points": "工夫した点（業務改善やチーム貢献など、2-3行の文章）"
     }
   ],
-  "skills_list": ["活かせる経験・知識・スキル1", "活かせる経験・知識・スキル2"]
+  "skills_list": [
+    "【（スキル名）】（課題→仮説→実行→結果のエピソード自然文）",
+    "【（スキル名）】（課題→仮説→実行→結果のエピソード自然文）"
+  ]
 }
 
 【最重要ルール】
-- どの項目（キャリアサマリ、職務内容、スキル等）においても、太字（**）や装飾マーカーは一切使用しないでください。
-- 数値やキーワードも装飾せず、プレーンなテキストで出力してください。
-- 活かせる経験・知識・スキルは、ストーリー形式ではなく、簡潔な箇条書きのリスト（skills_list）として出力してください。
+- どの項目（キャリアサマリ、職務内容、スキル等）においても、太字（**）や装飾マーカーは一切使用しないでください。ドキュメントの装飾はシステム側で行うため、プレーンなテキストのみを出力してください。
 
 【面談メモ/文字起こし】
-${memo}
+${memo}`;
 
-※情報が不足している部分は[要確認]としてください。
-※丁寧で説得力のある日本語で作成してください。`;
+  const parts = [];
+  const driveIds = extractDriveFileIds(memo);
+  
+  if (driveIds.length > 0) {
+    driveIds.forEach(id => {
+      try {
+        const file = DriveApp.getFileById(id);
+        const mimeType = file.getMimeType();
+        
+        if (mimeType === 'application/pdf') {
+          const base64Data = Utilities.base64Encode(file.getBlob().getBytes());
+          parts.push({
+            inline_data: { mime_type: 'application/pdf', data: base64Data }
+          });
+        } else if (mimeType.startsWith('image/')) {
+          const base64Data = Utilities.base64Encode(file.getBlob().getBytes());
+          parts.push({
+            inline_data: { mime_type: mimeType, data: base64Data }
+          });
+        } else if (mimeType === MimeType.GOOGLE_DOCS) {
+          const text = DocumentApp.openById(id).getBody().getText();
+          parts.push({ text: `【添付資料: ${file.getName()} の内容】\n${text}\n\n` });
+        } else if (mimeType === MimeType.PLAIN_TEXT || mimeType === 'text/plain' || mimeType === 'text/csv') {
+          const text = file.getBlob().getDataAsString('UTF-8');
+          parts.push({ text: `【添付資料: ${file.getName()} の内容】\n${text}\n\n` });
+        }
+      } catch (e) {
+        safeAlert('【エラー発覚②】PDFの中身を読み込もうとして失敗しました：\n' + e.toString());
+      }
+    });
+  }
+  
+  parts.push({ text: prompt });
 
   const payload = {
     contents: [{
-      parts: [{ text: prompt }]
+      parts: parts
     }]
   };
 
@@ -512,7 +578,8 @@ function createResumeDocument(name, date, data) {
   titlePara.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
   
   body.appendParagraph(Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy年MM月dd日現在")).setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
-  body.appendParagraph("氏名： " + name + " 様").setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+  const cleanName = name.replace(/[「」]/g, '').replace(/(?:さま|様|さん|氏)$/, '').trim();
+  body.appendParagraph("氏名： " + cleanName + " 様").setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   
   // 1. キャリアサマリ
   addSectionHeader(body, "■ キャリアサマリ");
