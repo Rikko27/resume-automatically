@@ -426,6 +426,10 @@ function callGeminiAPI(memo) {
 2. 会社概要の補完：会社名が提示されている場合は、「company_name」にそのまま出力し、絶対に「要確認」で省略・上書きしないこと。その上で事業内容/規模等を一般的なビジネス知識で補完し、自信がない補完部分にのみ【※要確認】とする。
 3. 職務要約：全社歴をひとつに統合して作成し、各社ブロックには繰り返さないこと。
 4. 自己PR（skills_listへの格納）：提供情報から「課題の発見 → 仮説立て → 実行 → 結果」の順で構成した自然文（150〜250文字）を作成すること。箇条書き・感情語・自己評価は禁止。冒頭に必ず【経営層アプローチスキル】【課題発見・仮説設計スキル】などのスキル名を付けること。
+5. 実績（achievements）セクションの厳格ルール：
+   - 「～を徹底した」「～を提案した」等の行動・プロセス（やったこと）は実績欄に一切含めず、必ず points や tasks に振り分けること。
+   - 数値の有無に関わらず、必ず以下の3行1セットのテンプレートを配列として出力すること。
+   - 【半自動ヒアリングモード】：入力データ内に数値がある場合はテンプレートの「※要確認」内に数値を反映させること（例：実績：【※要確認：売上1億2,000万円（目標比110%）】）。決してAIが数値を確定・捏造せず、人間が最終確認を行う入力待ち状態（【※要確認：数値】の形）を強制すること。
 
 出力は必ず以下のJSONフォーマットに厳密に従い、JSONそのものだけを出力してください。Markdownのバッククォートなどは含めないでください。
 
@@ -445,7 +449,11 @@ function callGeminiAPI(memo) {
       "business_content": "事業内容の簡潔な説明（補完不可なら【※要確認】）",
       "overview": "【業務内容】にあたる概要（誰の/何の課題を、何を用いて、どう解決したか）",
       "tasks": ["具体的なタスク（箇条書き。リード獲得/アプローチ/提案/商談/クロージング等）"],
-      "achievements": ["定量的な成果、KPI、成功事例（箇条書き。事実のみ、不明は【※要確認】）"],
+      "achievements": [
+        "目標：【※要確認：数値・期限・基準】",
+        "実績：【※要確認：定量結果（入力に数値があれば反映）】",
+        "達成率／差分：【※要確認：〇〇％、前年差〇〇、目標比〇〇％】"
+      ],
       "points": "工夫した点（業務改善やチーム貢献など、2-3行の文章）"
     }
   ],
@@ -665,6 +673,17 @@ function createResumeDocument(name, date, data) {
 
   body.appendParagraph("以上").setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   
+  // 「要確認」の文字をすべて赤色・太字に変更して目立たせる
+  let searchResult = body.findText("要確認");
+  while (searchResult !== null) {
+    const textElement = searchResult.getElement().asText();
+    const startOffset = searchResult.getStartOffset();
+    const endOffset = searchResult.getEndOffsetInclusive();
+    textElement.setForegroundColor(startOffset, endOffset, "#FF0000"); // 赤色
+    textElement.setBold(startOffset, endOffset, true); // 太字
+    searchResult = body.findText("要確認", searchResult);
+  }
+
   doc.saveAndClose();
   return doc.getUrl();
 }
